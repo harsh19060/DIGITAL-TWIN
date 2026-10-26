@@ -55,6 +55,13 @@ INSERT INTO student_sections (code, student_count) VALUES
     ('A7-B4', 11)
 ON CONFLICT (code) DO NOTHING;
 
+-- Local demo login identity for the student role.
+INSERT INTO campus_students (student_code, full_name, section_id)
+SELECT 'A7_44', 'A7 Demo Student', section.id
+FROM student_sections section
+WHERE section.code = 'A7'
+ON CONFLICT (student_code) DO NOTHING;
+
 INSERT INTO subjects (code, name) VALUES
     ('DPD', 'Distributed and Parallel Databases'),
     ('ECOM', 'E-Commerce and ERP'),

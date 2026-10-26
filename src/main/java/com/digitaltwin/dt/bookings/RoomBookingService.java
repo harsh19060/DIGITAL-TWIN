@@ -11,6 +11,7 @@ import com.digitaltwin.dt.subjects.SubjectRepository;
 import com.digitaltwin.dt.teachers.Teacher;
 import com.digitaltwin.dt.teachers.TeacherRepository;
 import com.digitaltwin.dt.timetable.DatedTimetableService;
+import com.digitaltwin.dt.timetable.TimetableEntryRepository;
 import com.digitaltwin.dt.timetable.TeacherCancellationService;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -36,12 +37,14 @@ public class RoomBookingService {
     private final RoomBookingRepository bookingRepository;
     private final SectionNotificationRepository notificationRepository;
     private final DatedTimetableService datedTimetableService;
+    private final TimetableEntryRepository timetableRepository;
 
     public RoomBookingService(RoomRepository roomRepository, TeacherRepository teacherRepository,
                               SectionRepository sectionRepository, SubjectRepository subjectRepository,
                               RoomBookingRepository bookingRepository,
                               SectionNotificationRepository notificationRepository,
-                              DatedTimetableService datedTimetableService) {
+                              DatedTimetableService datedTimetableService,
+                              TimetableEntryRepository timetableRepository) {
         this.roomRepository = roomRepository;
         this.teacherRepository = teacherRepository;
         this.sectionRepository = sectionRepository;
@@ -49,6 +52,7 @@ public class RoomBookingService {
         this.bookingRepository = bookingRepository;
         this.notificationRepository = notificationRepository;
         this.datedTimetableService = datedTimetableService;
+        this.timetableRepository = timetableRepository;
     }
 
     @Transactional(readOnly = true)
@@ -85,9 +89,12 @@ public class RoomBookingService {
     }
 
     @Transactional
-    public BookingResponse cancel(Long bookingId, String reason) {
+    public BookingResponse cancel(Long bookingId, String reason, String teacherCode) {
         RoomBooking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found: " + bookingId));
+        if (!booking.getTeacher().getStaffCode().equalsIgnoreCase(teacherCode)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Teachers can only cancel their own bookings");
+        }
         if (booking.getStatus() == BookingStatus.CANCELLED) {
             return BookingResponse.from(booking);
         }
@@ -140,6 +147,20 @@ public class RoomBookingService {
                 .orElseThrow(() -> notFound("Section", request.sectionCode()));
         Subject subject = subjectRepository.findByCodeIgnoreCase(request.subjectCode().trim())
                 .orElseThrow(() -> notFound("Subject", request.subjectCode()));
+        if (room.getCapacity() < section.getStudentCount()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Room capacity is smaller than the section size");
+        }
+        String roomType = room.getRoomType().toLowerCase(java.util.Locale.ROOT);
+        if (!roomType.contains("classroom") && !roomType.contains("lab")) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Room " + room.getRoomNumber() + " is not bookable for classes");
+        }
+        if (!timetableRepository.existsByTeacher_StaffCodeIgnoreCaseAndSection_CodeIgnoreCaseAndSubject_CodeIgnoreCase(
+                teacher.getStaffCode(), section.getCode(), subject.getCode())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "Teacher is not assigned to this section and subject in the base timetable");
+        }
         return new ResolvedBooking(request, room, teacher, section, subject);
     }
 

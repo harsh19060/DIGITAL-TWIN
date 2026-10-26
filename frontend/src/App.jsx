@@ -83,6 +83,7 @@ function App() {
     try { return JSON.parse(sessionStorage.getItem('dt-credentials') || 'null') } catch { return null }
   })
   const [page, setPage] = useState('overview')
+  const [identity, setIdentity] = useState(null)
   const [darkMode, setDarkMode] = useState(() => localStorage.getItem('campus-twin-theme') === 'dark')
   const [rooms, setRooms] = useState([])
   const [teachers, setTeachers] = useState([])
@@ -92,7 +93,7 @@ function App() {
   const [lastUpdated, setLastUpdated] = useState(null)
 
   const refresh = useCallback(async () => {
-    if (!credentials) return
+    if (!credentials || !identity || identity.role === 'ADMIN') return
     setLoading(true)
     setLoadError('')
     const [roomResult, teacherResult, scheduleResult] = await Promise.allSettled([
@@ -107,7 +108,27 @@ function App() {
     if (rejected) setLoadError(rejected.reason.message)
     else setLastUpdated(new Date())
     setLoading(false)
-  }, [credentials])
+  }, [credentials, identity])
+
+  useEffect(() => {
+    if (!credentials || identity) return undefined
+    let active = true
+    api('/api/session', credentials).then((account) => {
+      if (active) {
+        setIdentity(account)
+        if (account.role === 'ADMIN') setPage('timetable')
+      }
+    }).catch(() => {
+      if (active) {
+        sessionStorage.removeItem('dt-credentials')
+        setIdentity(null)
+        setIdentity(null)
+    setCredentials(null)
+      }
+    })
+    return () => { active = false }
+  }, [credentials, identity])
+
 
   useEffect(() => {
     const timer = window.setTimeout(refresh, 0)
@@ -122,29 +143,37 @@ function App() {
 
   function signOut() {
     sessionStorage.removeItem('dt-credentials')
+    setIdentity(null)
     setCredentials(null)
     setRooms([])
     setTeachers([])
     setTodaySchedule(null)
   }
 
-  if (!credentials) return <Login onLogin={(value) => {
+  if (!credentials) return <Login onLogin={(value, account) => {
     sessionStorage.setItem('dt-credentials', JSON.stringify(value))
     setCredentials(value)
+    setIdentity(account)
+    setPage(account.role === 'ADMIN' ? 'timetable' : 'overview')
   }} />
+  if (!identity) return <main className="login-page"><div className="login-panel"><p className="eyebrow">CONNECTING TO CAMPUS ACCOUNT…</p></div></main>
+
+  const activePage = identity.role === 'ADMIN' ? 'timetable' : page
+  const visibleNav = identity.role === 'ADMIN' ? NAV.filter((item) => item.id === 'timetable') : NAV
+  const visibleMenuItems = MENU_ITEMS.map((group) => ({ ...group, children: group.children.filter((item) => visibleNav.some((nav) => nav.id === item.value)) })).filter((group) => group.children.length > 0)
 
   return (
     <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}>
       <aside className="sidebar">
-        <a className="brand" href="#overview" onClick={() => setPage('overview')}>
+        <a className="brand" href="#overview" onClick={() => setPage(identity.role === 'ADMIN' ? 'timetable' : 'overview')}>
           <span className="brand-mark">d<span>t</span></span>
           <span className="brand-copy"><strong>campus twin</strong><small>BUILDING, IN SYNC</small></span>
         </a>
         <div className="sidebar-label">WORKSPACE</div>
         <BranchedMenu
           className="campus-branched-menu"
-          items={MENU_ITEMS}
-          activeValue={page}
+          items={visibleMenuItems}
+          activeValue={activePage}
           defaultOpen={[0]}
           onSelect={setPage}
           color="#b7c3c6"
@@ -172,7 +201,7 @@ function App() {
 
       <main className="main-area">
         <header className="topbar">
-          <div className="breadcrumb"><span>Digital Twin</span><i>/</i><strong>{NAV.find((item) => item.id === page)?.label}</strong></div>
+          <div className="breadcrumb"><span>Digital Twin</span><i>/</i><strong>{NAV.find((item) => item.id === activePage)?.label}</strong></div>
           <div className="topbar-actions">
             <span className="connection"><i />{loadError ? "API needs attention" : lastUpdated ? "API connected" : "Connecting"}</span>
             <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={darkMode}>{darkMode ? '☀' : '☾'}</button>
@@ -183,16 +212,16 @@ function App() {
 
         <div className="page-content">
           {loadError && <div className="error-banner"><span>!</span><div><strong>Some building data could not load</strong><small>{loadError}</small></div><button onClick={refresh}>Retry</button></div>}
-          {page === 'overview' && <Overview rooms={rooms} teachers={teachers} schedule={todaySchedule} lastUpdated={lastUpdated} loading={loading} onNavigate={setPage} />}
-          {page === 'rooms' && <RoomsPage rooms={rooms} loading={loading} />}
-          {page === 'teachers' && <TeachersPage teachers={teachers} credentials={credentials} />}
-          {page === 'timetable' && <TimetablePage credentials={credentials} />}
-          {page === 'messages' && <MessagesPage credentials={credentials} />}
+          {activePage === 'overview' && identity.role !== 'ADMIN' && <Overview rooms={rooms} teachers={teachers} schedule={todaySchedule} lastUpdated={lastUpdated} loading={loading} onNavigate={setPage} />}
+          {activePage === 'rooms' && <RoomsPage rooms={rooms} loading={loading} />}
+          {activePage === 'teachers' && <TeachersPage teachers={teachers} credentials={credentials} />}
+          {activePage === 'timetable' && <TimetablePage credentials={credentials} adminOnly={identity.role === 'ADMIN'} />}
+          {activePage === 'messages' && <MessagesPage credentials={credentials} identity={identity} />}
         </div>
       </main>
 
       <nav className="mobile-nav" aria-label="Mobile navigation">
-        {NAV.map((item) => <button key={item.id} className={page === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span><small>{item.label}</small></button>)}
+        {visibleNav.map((item) => <button key={item.id} className={activePage === item.id ? 'active' : ''} onClick={() => setPage(item.id)}><span>{item.icon}</span><small>{item.label}</small></button>)}
       </nav>
     </div>
   )
@@ -210,8 +239,8 @@ function Login({ onLogin }) {
     setError('')
     const credentials = { username, password }
     try {
-      await api('/api/rooms/current', credentials)
-      onLogin(credentials)
+      const account = await api('/api/session', credentials)
+      onLogin(credentials, account)
     } catch (problem) {
       setError(problem.message.includes('401') ? 'That username or password was not accepted.' : problem.message)
     } finally { setBusy(false) }
@@ -222,12 +251,20 @@ function Login({ onLogin }) {
       <a className="brand login-brand" href="#"><span className="brand-mark">d<span>t</span></span><span className="brand-copy"><strong>campus twin</strong><small>BUILDING, IN SYNC</small></span></a>
       <div className="login-art"><span className="art-sun"/><span className="art-building"><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/><i/></span><span className="art-ground"/></div>
       <div className="login-copy"><span className="eyebrow">YOUR CAMPUS, CONNECTED</span><h1>Find your place<br/>on campus.</h1><p>Rooms, classes, teachers, and campus conversations in one place.</p></div>
+      <div className="demo-accounts" aria-label="Choose a local demo account">
+        <span>LOCAL DEMO ACCOUNTS</span>
+        <div>
+          <button type="button" onClick={() => { setUsername('dev'); setPassword('dev-only-change-me') }}>Admin</button>
+          <button type="button" onClick={() => { setUsername('student'); setPassword('student-only-change-me') }}>Student · A7_44</button>
+          <button type="button" onClick={() => { setUsername('teacher'); setPassword('teacher-only-change-me') }}>Teacher · ALS</button>
+        </div>
+      </div>
       <form className="login-form" onSubmit={submit}>
         <label>Username<input autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} required /></label>
         <label>Password<input type="password" autoComplete="current-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="Enter your backend password" required /></label>
         {error && <div className="form-error">{error}</div>}
         <button className="primary-button" disabled={busy}>{busy ? 'Connecting…' : 'Connect to campus'} <span>→</span></button>
-        <p className="login-hint">Uses the current backend development account.</p>
+        <p className="login-hint">Choose a local demo account above. Change demo passwords in backend environment variables.</p>
       </form>
     </div>
     <footer className="login-footer">A clearer way to move through your day.</footer>
@@ -322,7 +359,7 @@ function TeachersPage({ teachers, credentials }) {
   </>
 }
 
-function TimetablePage({ credentials }) {
+function TimetablePage({ credentials, adminOnly = false }) {
   const [date, setDate] = useState(localDate())
   const [schedule, setSchedule] = useState(null)
   const [busy, setBusy] = useState(false)
@@ -331,37 +368,41 @@ function TimetablePage({ credentials }) {
   const [importBusy, setImportBusy] = useState(false)
   const [importMessage, setImportMessage] = useState('')
   const [importError, setImportError] = useState('')
+
   const load = useCallback(async () => {
+    if (adminOnly) return
     setBusy(true)
     setError('')
-    try { setSchedule(await api(`/api/timetable/on-date?date=${date}`, credentials)) }
+    try { setSchedule(await api('/api/timetable/on-date?date=' + date, credentials)) }
     catch (problem) { setError(problem.message); setSchedule(null) }
     finally { setBusy(false) }
-  }, [date, credentials])
+  }, [date, credentials, adminOnly])
+
   useEffect(() => {
     const timer = window.setTimeout(load, 0)
     return () => window.clearTimeout(timer)
   }, [load])
+
   const classes = schedule?.classes || []
 
   async function downloadTemplate() {
     setImportError('')
     try {
       const response = await fetch('/api/timetable/import/template', { headers: { Authorization: authHeader(credentials) } })
-      if (!response.ok) throw new Error((await response.text()) || `Template download failed (${response.status})`)
+      if (!response.ok) throw new Error((await response.text()) || 'Template download failed (' + response.status + ')')
       const url = URL.createObjectURL(await response.blob())
       const link = document.createElement('a')
       link.href = url
       link.download = 'university-timetable-template.xlsx'
       link.click()
-      URL.revokeObjectURL(url)
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch (problem) { setImportError(problem.message) }
   }
 
   async function importTimetable(event) {
     event.preventDefault()
     if (!importFile) return
-    const confirmed = window.confirm(`Replace the current base timetable with ${importFile.name}? This changes the schedule for the whole building.`)
+    const confirmed = window.confirm('Replace the current base timetable with ' + importFile.name + '? This changes the schedule for the whole building.')
     if (!confirmed) return
     setImportBusy(true)
     setImportError('')
@@ -376,23 +417,22 @@ function TimetablePage({ credentials }) {
       })
       const detail = await response.text()
       if (!response.ok) {
-        let message = detail || `Import failed (${response.status})`
+        let message = detail || 'Import failed (' + response.status + ')'
         try { const parsed = JSON.parse(detail); message = parsed.detail || parsed.message || parsed.error || message } catch { /* backend may return plain text */ }
         throw new Error(message)
       }
       const result = JSON.parse(detail)
-      setImportMessage(`${result.importedEntries} timetable entries imported. ${result.message}`)
+      setImportMessage(result.importedEntries + ' timetable entries imported. ' + result.message)
       setImportFile(null)
       event.target.reset()
-      await load()
     } catch (problem) { setImportError(problem.message) }
     finally { setImportBusy(false) }
   }
 
   return <>
-    <div className="page-heading"><span className="eyebrow">THE WEEK, MADE CLEAR</span><h1>Class <span className="heading-serif">timetable.</span></h1><p>Browse the building’s schedule for a date.</p></div>
-    <section className="surface timetable-import">
-      <div className="timetable-import-copy"><span className="eyebrow">ADMIN · BASE SCHEDULE</span><h2>Import a timetable</h2><p>Use the workbook template to validate and replace the building’s recurring timetable.</p></div>
+    <div className="page-heading"><span className="eyebrow">{adminOnly ? 'ADMIN · BASE SCHEDULE' : 'THE WEEK, MADE CLEAR'}</span><h1>{adminOnly ? <>Manage the <span className="heading-serif">timetable.</span></> : <>Class <span className="heading-serif">timetable.</span></>}</h1><p>{adminOnly ? 'Upload the recurring building schedule from one workbook.' : 'Browse the building’s schedule for a date.'}</p></div>
+    {adminOnly && <section className="surface timetable-import">
+      <div className="timetable-import-copy"><span className="eyebrow">BASE SCHEDULE</span><h2>Import a timetable</h2><p>Use the workbook template to validate and replace the building’s recurring timetable.</p></div>
       <button className="secondary-button template-button" type="button" onClick={downloadTemplate}>↓ &nbsp; Download Excel template</button>
       <form className="import-form" onSubmit={importTimetable}>
         <label className="import-file-label">Excel workbook (.xlsx)<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setImportFile(event.target.files?.[0] || null); setImportError(''); setImportMessage('') }}/></label>
@@ -400,50 +440,70 @@ function TimetablePage({ credentials }) {
       </form>
       {importFile && <p className="import-selected">Selected: <strong>{importFile.name}</strong></p>}
       <p className="import-warning">Import replaces the current base schedule across the building. The existing schedule stays intact if validation fails.</p>
-      {importError && <div className="form-error" role="alert">{importError}</div>}{importMessage && <div className="success-note" role="status">✓ {importMessage}</div>}
-    </section>
-    <div className="toolbar timetable-toolbar"><label className="date-control"><span>DATE</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>{schedule && <span className="week-pill">{schedule.activeWeek}</span>}</div>
-    {error && <div className="form-error">{error}</div>}
-    <section className="surface timetable-surface"><div className="timetable-date"><div><span className="eyebrow">SCHEDULE FOR</span><h2>{prettyDate(date)}</h2></div><span className="result-count">{classes.length} classes</span></div>{busy ? <EmptyState loading title="Loading timetable" text=""/> : classes.length ? <div className="timeline-list">{classes.map((item) => <ScheduleRow key={`${item.timetableEntryId}-${item.startTime}`} item={item}/>)}</div> : <EmptyState title="No classes scheduled" text="There are no timetable entries for this day."/>}</section>
+      {importError && <div className="form-error" role="alert">{importError}</div>}
+      {importMessage && <div className="success-note" role="status">✓ {importMessage}</div>}
+    </section>}
+    {!adminOnly && <>
+      <div className="toolbar timetable-toolbar"><label className="date-control"><span>DATE</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>{schedule && <span className="week-pill">{schedule.activeWeek}</span>}</div>
+      {error && <div className="form-error">{error}</div>}
+      <section className="surface timetable-surface"><div className="timetable-date"><div><span className="eyebrow">SCHEDULE FOR</span><h2>{prettyDate(date)}</h2></div><span className="result-count">{classes.length} classes</span></div>{busy ? <EmptyState loading title="Loading timetable" text=""/> : classes.length ? <div className="timeline-list">{classes.map((item) => <ScheduleRow key={item.timetableEntryId + '-' + item.startTime} item={item}/>)}</div> : <EmptyState title="No classes scheduled" text="There are no timetable entries for this day."/>}</section>
+    </>}
   </>
 }
-
-function MessagesPage({ credentials }) {
-  const [audience, setAudience] = useState('GLOBAL')
-  const [category, setCategory] = useState('GENERAL')
-  const [senderType, setSenderType] = useState('STUDENT')
-  const [senderCode, setSenderCode] = useState('')
-  const [recipientType, setRecipientType] = useState('TEACHER')
-  const [recipientCode, setRecipientCode] = useState('')
-  const [sectionCode, setSectionCode] = useState('')
-  const [body, setBody] = useState('')
+function MessagesPage({ credentials, identity }) {
+  const [contacts, setContacts] = useState([])
+  const [selectedKey, setSelectedKey] = useState('')
   const [feed, setFeed] = useState([])
+  const [draft, setDraft] = useState('')
+  const [search, setSearch] = useState('')
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
-  const [backendOutdated, setBackendOutdated] = useState(false)
-  const [sent, setSent] = useState('')
+  const selected = contacts.find((contact) => contactKey(contact) === selectedKey) || null
+  const filteredContacts = contacts.filter((contact) => (contact.displayName + ' ' + contact.code).toLowerCase().includes(search.toLowerCase()))
 
-  const feedPath = useMemo(() => {
-    if (audience === 'GLOBAL') return '/api/messages/global'
-    if (audience === 'SECTION') return sectionCode ? `/api/messages/section/${encodeURIComponent(sectionCode)}` : null
-    if (!senderCode || !recipientCode) return null
-    return `/api/messages/direct/${senderType}/${encodeURIComponent(senderCode)}/${recipientType}/${encodeURIComponent(recipientCode)}`
-  }, [audience, sectionCode, senderCode, recipientCode, senderType, recipientType])
-  const streamPath = useMemo(() => feedPath ? feedPath.replace('/api/messages/', '/api/messages/stream/') : null, [feedPath])
+  const refreshContacts = useCallback(async () => {
+    try {
+      const items = await api('/api/messages/contacts', credentials)
+      setContacts(items)
+      setSelectedKey((current) => current || contactKey(items.find((item) => item.conversationType === 'DIRECT' && item.participantType === 'SYSTEM') || items[0] || {}))
+    } catch (problem) { setError(problem.message) }
+  }, [credentials])
 
-  const loadFeed = useCallback(async () => {
-    if (!feedPath) { setFeed([]); return }
+  const loadConversation = useCallback(async (contact = selected) => {
+    if (!contact) { setFeed([]); return }
+    let path
+    if (contact.conversationType === 'GLOBAL') path = '/api/messages/global'
+    else if (contact.conversationType === 'SECTION') path = '/api/messages/section/' + encodeURIComponent(contact.code)
+    else path = '/api/messages/direct/' + identity.participantType + '/' + encodeURIComponent(identity.participantCode) +
+      '/' + contact.participantType + '/' + encodeURIComponent(contact.code)
     setBusy(true)
     setError('')
-    try { setFeed(await api(feedPath, credentials)) }
-    catch (problem) { setError(problem.message); setFeed([]) }
+    try { setFeed(await api(path, credentials)) }
+    catch (problem) { setFeed([]); setError(problem.message) }
     finally { setBusy(false) }
-  }, [feedPath, credentials])
+  }, [selected, identity, credentials])
+
   useEffect(() => {
-    const timer = window.setTimeout(loadFeed, 0)
+    const timer = window.setTimeout(refreshContacts, 0)
     return () => window.clearTimeout(timer)
-  }, [loadFeed])
+  }, [refreshContacts])
+  useEffect(() => {
+    const timer = window.setTimeout(() => loadConversation(selected), 0)
+    return () => window.clearTimeout(timer)
+  }, [loadConversation, selected])
+  useEffect(() => {
+    const timer = window.setInterval(refreshContacts, 15000)
+    return () => window.clearInterval(timer)
+  }, [refreshContacts])
+
+  const streamPath = useMemo(() => {
+    if (!selected) return null
+    if (selected.conversationType === 'GLOBAL') return '/api/messages/stream/global'
+    if (selected.conversationType === 'SECTION') return '/api/messages/stream/section/' + encodeURIComponent(selected.code)
+    return '/api/messages/stream/direct/' + identity.participantType + '/' + encodeURIComponent(identity.participantCode) +
+      '/' + selected.participantType + '/' + encodeURIComponent(selected.code)
+  }, [selected, identity])
 
   useEffect(() => {
     if (!streamPath) return undefined
@@ -451,15 +511,7 @@ function MessagesPage({ credentials }) {
     async function listen() {
       try {
         const response = await fetch(streamPath, { headers: { Authorization: authHeader(credentials) }, signal: controller.signal })
-        if (!response.ok) {
-          if (response.status === 404 && audience !== 'DIRECT') {
-            setBackendOutdated(true)
-            setError('Restart Spring Boot from the current project folder to enable sending and live messages.')
-          }
-          return
-        }
-        if (!response.body) return
-        setBackendOutdated(false)
+        if (!response.ok || !response.body) return
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -475,105 +527,112 @@ function MessagesPage({ credentials }) {
             try {
               const message = JSON.parse(data)
               setFeed((current) => current.some((item) => item.id === message.id) ? current : [...current, message].slice(-100))
-            } catch { /* initial connected event carries a channel name */ }
+            } catch { /* The initial connection event has no message payload. */ }
           }
         }
       } catch (problem) {
-        if (problem.name !== 'AbortError') console.info('Live message stream disconnected')
+        if (problem.name !== 'AbortError') console.info('Conversation stream disconnected')
       }
     }
     listen()
     return () => controller.abort()
-  }, [streamPath, credentials, audience])
+  }, [streamPath, credentials])
 
-  async function sendMessage(event) {
-    event?.preventDefault?.()
-    const missingAudienceCode = (audience === 'SECTION' && !sectionCode.trim()) || (audience === 'DIRECT' && !recipientCode.trim())
-    if (!senderCode.trim() || !body.trim() || missingAudienceCode) {
-      setError('Complete the message and audience fields before sending.')
-      return
+  async function resolveContact(target) {
+    const known = contacts.find((contact) => contact.code.toLowerCase() === target.toLowerCase())
+    if (known) return known
+    if (/^Ad+(?:-[A-Z0-9_-]+)?$/i.test(target)) {
+      return { conversationType: 'SECTION', participantType: 'SECTION', code: target.toUpperCase(), displayName: 'Class ' + target.toUpperCase() }
     }
+    const [teachers, students] = await Promise.all([
+      api('/api/teachers', credentials),
+      api('/api/students', credentials),
+    ])
+    const teacher = teachers.find((item) => item.staffCode.toLowerCase() === target.toLowerCase())
+    if (teacher) return { conversationType: 'DIRECT', participantType: 'TEACHER', code: teacher.staffCode, displayName: teacher.fullName + ' · ' + teacher.staffCode }
+    const student = students.find((item) => item.studentCode.toLowerCase() === target.toLowerCase())
+    if (student) return { conversationType: 'DIRECT', participantType: 'STUDENT', code: student.studentCode, displayName: student.fullName + ' · ' + student.studentCode }
+    throw new Error('No teacher, student, or class matches @' + target + '. Check the short code.')
+  }
+
+  async function submitMessage(event) {
+    event?.preventDefault?.()
+    if (sending) return
+    const match = draft.trim().match(/^@([^s]+)s+([sS]+)$/)
+    if (!match) { setError('Start with a contact: @system, @A7, @ALS, @AS, or @all, then write your message.'); return }
+    const targetName = match[1].replace(/,$/, '')
+    const body = match[2].trim()
+    if (!body) { setError('Write a message after the @contact.'); return }
     setSending(true)
     setError('')
-    setSent('')
-    const request = {
-      senderType,
-      senderCode,
-      audience,
-      recipientType: audience === 'SECTION' ? 'SECTION' : audience === 'DIRECT' ? recipientType : null,
-      recipientCode: audience === 'GLOBAL' ? null : audience === 'SECTION' ? sectionCode : recipientCode,
-      category,
-      body,
-    }
     try {
-      await api('/api/messages', credentials, { method: 'POST', body: JSON.stringify(request) })
-      setSent('Message sent to the campus chat.')
-      setBody('')
-      await loadFeed()
-    } catch (problem) {
-      if (backendOutdated) {
-        setError('Restart Spring Boot from the current project folder to enable message sending.')
-      } else if (problem.status === 404 && senderType === 'STUDENT') {
-        setError(`Student code ${senderCode} is not registered yet. Ask the campus admin to add it, then try again.`)
-      } else if (problem.status === 404 && audience === 'SECTION') {
-        setError(`Section ${sectionCode} was not found. Check the section code and try again.`)
-      } else if (problem.status === 404 && audience === 'DIRECT') {
-        setError('We could not find one of those participants. Check both codes in the campus directory.')
+      let target
+      if (targetName.toLowerCase() === 'system') {
+        target = { conversationType: 'DIRECT', participantType: 'SYSTEM', code: 'SYSTEM', displayName: 'Campus system' }
+        await api('/api/system/command', credentials, { method: 'POST', body: JSON.stringify({ command: body }) })
+      } else if (targetName.toLowerCase() === 'all') {
+        target = { conversationType: 'GLOBAL', participantType: null, code: 'ALL', displayName: 'Building-wide' }
+        await api('/api/messages', credentials, { method: 'POST', body: JSON.stringify({
+          senderType: identity.participantType, senderCode: identity.participantCode, audience: 'GLOBAL',
+          recipientType: null, recipientCode: null, category: 'GENERAL', body,
+        }) })
       } else {
-        setError(problem.message)
+        target = await resolveContact(targetName)
+        const section = target.conversationType === 'SECTION'
+        await api('/api/messages', credentials, { method: 'POST', body: JSON.stringify({
+          senderType: identity.participantType, senderCode: identity.participantCode,
+          audience: section ? 'SECTION' : 'DIRECT',
+          recipientType: section ? 'SECTION' : target.participantType,
+          recipientCode: target.code, category: 'GENERAL', body,
+        }) })
       }
-    }
+      setDraft('')
+      setContacts((current) => [target, ...current.filter((item) => contactKey(item) !== contactKey(target))])
+      setSelectedKey(contactKey(target))
+      await refreshContacts()
+      await loadConversation(target)
+    } catch (problem) { setError(problem.message) }
     finally { setSending(false) }
   }
 
   return <>
-    <div className="page-heading"><span className="eyebrow">CAMPUS CONVERSATIONS</span><h1>Messages <span className="heading-serif">that find their people.</span></h1><p>Talk to one person, share with a section, or post to the whole building.</p></div>
-    <div className="message-layout">
-      <section className="surface chat-panel">
-        <div className="chat-header"><div><span className="eyebrow">{audience === 'GLOBAL' ? 'BUILDING-WIDE' : audience === 'SECTION' ? 'SECTION CHAT' : 'DIRECT MESSAGE'}</span><h2>{audience === 'GLOBAL' ? 'Everyone at DT' : audience === 'SECTION' ? (sectionCode || 'Choose a section') : `${senderCode || 'You'} ↔ ${recipientCode || 'Choose a recipient'}`}</h2></div><span className="chat-live"><i/> Live</span></div>
-        <div className="audience-tabs"><button className={audience === 'GLOBAL' ? 'active' : ''} onClick={() => setAudience('GLOBAL')}>@ All</button><button className={audience === 'SECTION' ? 'active' : ''} onClick={() => setAudience('SECTION')}>Section</button><button className={audience === 'DIRECT' ? 'active' : ''} onClick={() => setAudience('DIRECT')}>Direct</button></div>
-        <div className="message-list">{error && <div className="form-error">{error}</div>}{busy ? <EmptyState loading title="Loading messages" text=""/> : feed.length === 0 ? <EmptyState title="Start a conversation" text="Messages appear here as soon as someone posts."/> : feed.map((message) => <MessageBubble key={message.id} message={message} />)}</div>
-        {sent && <div className="success-note">✓ {sent}</div>}
-        <form className="composer" onSubmit={sendMessage}>
-          <div className="composer-fields"><label>Sending as<select value={senderType} onChange={(event) => setSenderType(event.target.value)}><option value="STUDENT">Student</option><option value="TEACHER">Teacher</option></select></label><label>Your code<input value={senderCode} onChange={(event) => setSenderCode(event.target.value)} placeholder="e.g. A7_44" required/></label>
-            {audience === 'SECTION' && <label>Section code<input value={sectionCode} onChange={(event) => setSectionCode(event.target.value)} placeholder="e.g. A7" required/></label>}
-            {audience === 'DIRECT' && <><label>Recipient type<select value={recipientType} onChange={(event) => setRecipientType(event.target.value)}><option value="TEACHER">Teacher</option><option value="STUDENT">Student</option></select></label><label>Recipient code<input value={recipientCode} onChange={(event) => setRecipientCode(event.target.value)} placeholder="Staff or student code" required/></label></>}
-            <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="GENERAL">General</option><option value="ANNOUNCEMENT">Announcement</option><option value="QUESTION">Question</option><option value="LOST_FOUND">Lost & found</option></select></label>
-          </div>
-          <div className="composer-input">
-            <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder={audience === 'GLOBAL' ? 'Share something with the whole building…' : 'Write a message…'} required />
-            <FuseButton
-              className="message-send-fuse"
-              label={sending ? 'Sending' : 'Send'}
-              undoLabel="Undo"
-              doneLabel="Sent"
+    <div className="page-heading"><span className="eyebrow">YOUR CAMPUS INBOX</span><h1>Messages <span className="heading-serif">with the right people.</span></h1><p>Start each message with a contact mention to open or create that conversation.</p></div>
+    <div className="messenger-layout">
+      <aside className="surface contacts-panel">
+        <div className="contacts-heading"><div><span className="eyebrow">INBOX</span><h2>Your conversations</h2></div><span className="contact-count">{contacts.length}</span></div>
+        <label className="contact-search"><span>⌕</span><input placeholder="Find a contact" value={search} onChange={(event) => setSearch(event.target.value)}/></label>
+        <div className="contact-list">{filteredContacts.map((contact) => <button key={contactKey(contact)} className={'contact-row ' + (contactKey(contact) === selectedKey ? 'active' : '')} onClick={() => setSelectedKey(contactKey(contact))}>
+          <span className={'contact-avatar ' + (contact.participantType === 'SYSTEM' ? 'system' : contact.conversationType === 'SECTION' ? 'section' : '')}>{contact.conversationType === 'GLOBAL' ? '@' : contact.participantType === 'SYSTEM' ? '✳' : contact.code.slice(0, 1).toUpperCase()}</span>
+          <span className="contact-copy"><strong>{contact.displayName}</strong><small>{contact.lastMessage || (contact.conversationType === 'GLOBAL' ? 'Building-wide messages' : 'Start a conversation')}</small></span>
+          {contact.conversationType === 'SECTION' && <span className="contact-kind">CLASS</span>}
+        </button>)}</div>
+        <div className="account-identity"><span className="avatar">{identity.participantCode.slice(0, 1).toUpperCase()}</span><span><strong>{identity.role === 'TEACHER' ? 'Teacher' : 'Student'}</strong><small>{identity.participantCode}</small></span></div>
+      </aside>
+      <section className="surface conversation-panel">
+        <div className="conversation-header">{selected ? <><div><span className="eyebrow">{selected.conversationType === 'GLOBAL' ? 'BUILDING-WIDE' : selected.conversationType === 'SECTION' ? 'CLASS CHAT' : selected.participantType === 'SYSTEM' ? 'CAMPUS ASSISTANT' : 'DIRECT MESSAGE'}</span><h2>{selected.displayName}</h2></div><span className="chat-live"><i/> Live</span></> : <div><span className="eyebrow">MESSAGES</span><h2>Choose a conversation</h2></div>}</div>
+        <div className="conversation-feed">{error && <div className="form-error" role="alert">{error}</div>}{busy ? <EmptyState loading title="Loading conversation" text=""/> : feed.length ? feed.map((message) => <MessageBubble key={message.id} message={message} own={message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase() && message.senderType === identity.participantType}/>) : <EmptyState title={selected ? 'No messages here yet' : 'Your inbox is ready'} text={selected ? 'Send the first note using the @contact box below.' : 'Type @system, @A7, or a teacher code to start a chat.'}/>}</div>
+        <form className="command-composer" onSubmit={submitMessage}>
+          <div className="composer-account"><span>Signed in as</span><strong>{identity.participantType} · {identity.participantCode}</strong></div>
+          <div className="command-input"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitMessage() } }} maxLength={2000} placeholder="Try: @system currently free classrooms" aria-label="Message with an @contact mention" />
+            <FuseButton className="message-send-fuse" label={sending ? 'Sending' : 'Send'} undoLabel="Undo" doneLabel="Sent"
               icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5m-7 7 7-7 7 7" /></svg>}
-              color="#ffffff"
-              background="#506f58"
-              fuseColor="#e8c77a"
-              size="sm"
-              radius={9}
-              undoWindow={1400}
-              fuse="bottom"
-              fuseThickness={2}
-              commitOn="fuseEnd"
-              pauseOnHover={false}
-              settle="reset"
-              disabled={sending || !senderCode.trim() || !body.trim() || (audience === 'SECTION' && !sectionCode.trim()) || (audience === 'DIRECT' && !recipientCode.trim())}
-              onCommit={() => sendMessage()}
-            />
+              color="#ffffff" background="#506f58" fuseColor="#e8c77a" size="sm" radius={9} undoWindow={1400}
+              fuse="bottom" fuseThickness={2} commitOn="fuseEnd" pauseOnHover={false} settle="reset"
+              disabled={sending || !draft.trim()} onCommit={submitMessage}/>
           </div>
-          <div className="composer-hint">Messages reach {audience === 'GLOBAL' ? 'everyone in the building' : audience === 'SECTION' ? 'everyone in this section chat' : 'both people in this direct conversation'}. Use the code registered in the campus directory.</div>
+          <div className="composer-hint">Use <strong>@system</strong> for campus requests, <strong>@A7</strong> for a class, <strong>@ALS</strong>/<strong>@AS</strong> for teachers, or <strong>@all</strong> for everyone. Enter sends; Shift+Enter adds a line.</div>
         </form>
       </section>
-      <aside className="message-aside"><div className="message-aside-icon">✳</div><span className="eyebrow">A MORE CONNECTED CAMPUS</span><h3>One note.<br/><em>Everyone who needs it.</em></h3><p>Use section chats for class updates, direct messages for one-to-one conversations, and the global feed for campus-wide notices.</p><div className="message-tip"><strong>Lost something?</strong><span>Choose “Lost & found” and send it to @ All.</span></div></aside>
     </div>
   </>
 }
 
-function MessageBubble({ message }) {
+function contactKey(contact) {
+  return contact.conversationType + ':' + (contact.participantType || '') + ':' + contact.code
+}
+function MessageBubble({ message, own = false }) {
   const initials = message.senderCode?.split(/[_\s-]/).filter(Boolean).slice(-1)[0]?.slice(0, 1).toUpperCase() || '?'
-  return <article className="message-item"><span className={`message-avatar ${message.senderType === 'TEACHER' ? 'teacher' : ''}`}>{initials}</span><div className="message-content"><div className="message-meta"><strong>{message.senderCode}</strong><span>{message.senderType?.toLowerCase()}</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.body}</p><span className={`category-chip ${message.category?.toLowerCase()}`}>{message.category?.replace('_', ' ')}</span></div></article>
+  return <article className={`message-item ${own ? 'own-message' : ''}`}><span className={`message-avatar ${message.senderType === 'TEACHER' ? 'teacher' : message.senderType === 'SYSTEM' ? 'system' : ''}`}>{initials}</span><div className="message-content"><div className="message-meta"><strong>{message.senderType === 'SYSTEM' ? 'Campus system' : message.senderCode}</strong><span>{message.senderType?.toLowerCase()}</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.body}</p><span className={`category-chip ${message.category?.toLowerCase()}`}>{message.category?.replace('_', ' ')}</span></div></article>
 }
 
 export default App

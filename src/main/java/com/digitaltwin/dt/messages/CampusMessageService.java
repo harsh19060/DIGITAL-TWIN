@@ -45,11 +45,99 @@ public class CampusMessageService {
         String senderCode = request.senderCode().trim();
         String recipientCode = request.recipientCode() == null ? null : request.recipientCode().trim();
         validateParticipants(request, senderCode, recipientCode);
-        CampusMessage saved = messageRepository.save(new CampusMessage(request.senderType(), senderCode,
-                request.audience(), request.recipientType(), recipientCode, request.category(), request.body().trim()));
+        return saveMessage(request.senderType(), senderCode, request.audience(), request.recipientType(),
+                recipientCode, request.category(), request.body().trim());
+    }
+
+    @Transactional
+    public CampusMessageResponse sendSystemReply(ParticipantType userType, String userCode,
+                                                 String command, String reply) {
+        CampusMessageResponse incoming = saveMessage(userType, userCode, MessageAudience.DIRECT,
+                ParticipantType.SYSTEM, "SYSTEM", MessageCategory.QUESTION, command);
+        saveMessage(ParticipantType.SYSTEM, "SYSTEM", MessageAudience.DIRECT,
+                userType, userCode, MessageCategory.GENERAL, reply);
+        return incoming;
+    }
+
+    @Transactional
+    public CampusMessageResponse sendSectionSystemNotice(String sectionCode, String body) {
+        String code = sectionCode.trim();
+        if (sectionRepository.findByCodeIgnoreCase(code).isEmpty()) throw notFound("Section", code);
+        return saveMessage(ParticipantType.SYSTEM, "SYSTEM", MessageAudience.SECTION,
+                ParticipantType.SECTION, code, MessageCategory.ANNOUNCEMENT, body);
+    }
+    private CampusMessageResponse saveMessage(ParticipantType senderType, String senderCode,
+                                               MessageAudience audience, ParticipantType recipientType,
+                                               String recipientCode, MessageCategory category, String body) {
+        CampusMessage saved = messageRepository.save(new CampusMessage(senderType, senderCode, audience,
+                recipientType, recipientCode, category, body));
         CampusMessageResponse response = CampusMessageResponse.from(saved);
         eventPublisher.publishEvent(response);
         return response;
+    }
+
+    @Transactional(readOnly = true)
+    public List<ContactResponse> contacts(ParticipantType type, String code) {
+        Pageable page = PageRequest.of(0, 200);
+        java.util.Map<String, ContactResponse> contacts = new java.util.LinkedHashMap<>();
+        contacts.put("DIRECT:SYSTEM", new ContactResponse("DIRECT", ParticipantType.SYSTEM, "SYSTEM",
+                "Campus system", "Ask about free rooms or class changes", null));
+        contacts.put("GLOBAL", new ContactResponse("GLOBAL", null, "ALL", "Building-wide",
+                "Messages for everyone in the building", null));
+
+        for (CampusMessage message : messageRepository.findDirectForParticipant(MessageAudience.DIRECT, type, code, page)) {
+            boolean sentByMe = message.getSenderType() == type && message.getSenderCode().equalsIgnoreCase(code);
+            ParticipantType otherType = sentByMe ? message.getRecipientType() : message.getSenderType();
+            String otherCode = sentByMe ? message.getRecipientCode() : message.getSenderCode();
+            String key = "DIRECT:" + otherType + ":" + otherCode.toLowerCase(Locale.ROOT);
+            ContactResponse current = contacts.get(key);
+            if (current == null || current.lastMessageAt() == null
+                    || message.getCreatedAt().isAfter(current.lastMessageAt())) {
+                contacts.put(key, new ContactResponse("DIRECT", otherType, otherCode,
+                        contactName(otherType, otherCode), message.getBody(), message.getCreatedAt()));
+            }
+        }
+
+        String sectionCode = null;
+        if (type == ParticipantType.STUDENT) {
+            sectionCode = studentRepository.findByStudentCodeIgnoreCase(code)
+                    .map(student -> student.getSection().getCode()).orElse(null);
+        }
+        if (sectionCode != null) {
+            String sectionKey = "SECTION:" + sectionCode.toLowerCase(Locale.ROOT);
+            contacts.put(sectionKey, sectionContact(sectionCode, type, code, page));
+        } else if (type == ParticipantType.TEACHER) {
+            for (CampusMessage message : messageRepository.findSectionConversationForParticipant(
+                    MessageAudience.SECTION, "", type, code, page)) {
+                String sentTo = message.getRecipientCode();
+                if (sentTo != null && !sentTo.isBlank()) {
+                    contacts.putIfAbsent("SECTION:" + sentTo.toLowerCase(Locale.ROOT),
+                            sectionContact(sentTo, type, code, page));
+                }
+            }
+        }
+        return contacts.values().stream()
+                .sorted(java.util.Comparator.comparing(ContactResponse::lastMessageAt,
+                        java.util.Comparator.nullsLast(java.util.Comparator.reverseOrder())))
+                .toList();
+    }
+
+    private ContactResponse sectionContact(String sectionCode, ParticipantType type, String code, Pageable page) {
+        List<CampusMessage> history = messageRepository.findSectionConversationForParticipant(
+                MessageAudience.SECTION, sectionCode, type, code, page);
+        CampusMessage latest = history.isEmpty() ? null : history.get(0);
+        return new ContactResponse("SECTION", ParticipantType.SECTION, sectionCode, "Class " + sectionCode,
+                latest == null ? "Section conversation" : latest.getBody(),
+                latest == null ? null : latest.getCreatedAt());
+    }
+
+    private String contactName(ParticipantType type, String code) {
+        if (type == ParticipantType.SYSTEM) return "Campus system";
+        if (type == ParticipantType.TEACHER) return teacherRepository.findByStaffCodeIgnoreCase(code)
+                .map(teacher -> teacher.getFullName() + " · " + teacher.getStaffCode()).orElse(code);
+        if (type == ParticipantType.STUDENT) return studentRepository.findByStudentCodeIgnoreCase(code)
+                .map(student -> student.getFullName() + " · " + student.getStudentCode()).orElse(code);
+        return code;
     }
 
     public SseEmitter subscribeDirect(ParticipantType firstType, String firstCode,
@@ -113,6 +201,7 @@ public class CampusMessageService {
                 if (sectionRepository.findByCodeIgnoreCase(recipientCode).isEmpty()) throw notFound("Section", recipientCode);
             }
             case DIRECT -> {
+                if (request.recipientType() == ParticipantType.SYSTEM) throw badRequest("Use @system to send a system request");
                 if (request.recipientType() == null || request.recipientType() == ParticipantType.SECTION
                         || recipientCode == null || recipientCode.isBlank()) {
                     throw badRequest("Direct messages require a teacher or student recipient code");
@@ -130,8 +219,10 @@ public class CampusMessageService {
     }
 
     private void validateDirectParticipant(ParticipantType type, String code) {
-        if (type == null || type == ParticipantType.SECTION || code == null || code.isBlank()) {
-            throw badRequest("A direct conversation requires teacher or student participant codes");
+        if (type == ParticipantType.SYSTEM && "SYSTEM".equalsIgnoreCase(code)) return;
+        if (type == null || type == ParticipantType.SECTION || type == ParticipantType.SYSTEM
+                || code == null || code.isBlank()) {
+            throw badRequest("A direct conversation requires valid teacher, student, or system participant codes");
         }
         if (type == ParticipantType.TEACHER && teacherRepository.findByStaffCodeIgnoreCase(code.trim()).isEmpty()) {
             throw notFound("Teacher", code);
@@ -152,6 +243,8 @@ public class CampusMessageService {
     private ResponseStatusException notFound(String type, String value) {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, type + " not found: " + value);
     }
+
+    public record ContactResponse(String conversationType, ParticipantType participantType, String code, String displayName, String lastMessage, java.time.Instant lastMessageAt) { }
 
     public record SendMessageRequest(
             @NotNull ParticipantType senderType,

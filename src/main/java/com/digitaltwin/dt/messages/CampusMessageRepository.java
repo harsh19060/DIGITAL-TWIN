@@ -24,4 +24,20 @@ public interface CampusMessageRepository extends JpaRepository<CampusMessage, Lo
                                                @Param("secondType") ParticipantType secondType,
                                                @Param("secondCode") String secondCode,
                                                Pageable pageable);
+
+    @Query("select m from CampusMessage m where m.audience = :audience and " +
+            "((m.senderType = :type and lower(m.senderCode) = lower(:code)) or " +
+            "(m.recipientType = :type and lower(m.recipientCode) = lower(:code))) order by m.createdAt desc")
+    List<CampusMessage> findDirectForParticipant(@Param("audience") MessageAudience audience,
+                                                 @Param("type") ParticipantType type,
+                                                 @Param("code") String code, Pageable pageable);
+
+    @Query("select m from CampusMessage m where m.audience = :audience and " +
+            "(lower(m.recipientCode) = lower(:sectionCode) or " +
+            "(m.senderType = :senderType and lower(m.senderCode) = lower(:senderCode))) order by m.createdAt desc")
+    List<CampusMessage> findSectionConversationForParticipant(@Param("audience") MessageAudience audience,
+                                                              @Param("sectionCode") String sectionCode,
+                                                              @Param("senderType") ParticipantType senderType,
+                                                              @Param("senderCode") String senderCode,
+                                                              Pageable pageable);
 }
