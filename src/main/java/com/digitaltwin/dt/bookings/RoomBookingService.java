@@ -80,8 +80,24 @@ public class RoomBookingService {
 
     @Transactional(readOnly = true)
     public List<BookingResponse> listForDate(LocalDate date) {
-        return bookingRepository.findAllByClassDateAndStatusOrderByStartTimeAsc(date, BookingStatus.CONFIRMED)
+        return bookingRepository.findAllByClassDateOrderByStartTimeAsc(date)
                 .stream().map(BookingResponse::from).toList();
+    }
+
+    @Transactional
+    public BookingResponse cancel(Long bookingId, String reason) {
+        RoomBooking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found: " + bookingId));
+        if (booking.getStatus() == BookingStatus.CANCELLED) {
+            return BookingResponse.from(booking);
+        }
+        booking.cancel(reason.trim());
+        notificationRepository.save(new SectionNotification(booking.getSection(), booking.getClassDate(),
+                "Extra class cancelled: " + booking.getSubject().getCode(),
+                String.format("The extra class for %s in %s from %s to %s was cancelled. Reason: %s.",
+                        booking.getSubject().getName(), booking.getRoom().getRoomNumber(),
+                        booking.getStartTime(), booking.getEndTime(), reason.trim())));
+        return BookingResponse.from(booking);
     }
 
     private String findConflict(ResolvedBooking request) {
@@ -157,3 +173,4 @@ public class RoomBookingService {
     public record BookingPreview(boolean available, String message, String roomNumber,
                                  LocalDate classDate, LocalTime startTime, LocalTime endTime) { }
 }
+

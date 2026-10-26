@@ -23,6 +23,7 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET /api/timetable/on-date?date=YYYY-MM-DD` (shows the active Week A/B schedule with dated cancellations applied)
 - `POST /api/bookings/preview` and `POST /api/bookings` (check and confirm extra-class bookings)
 - `GET /api/bookings?date=YYYY-MM-DD`
+- `POST /api/bookings/{id}/cancel`
 - `GET /api/sections/{sectionCode}/notifications`
 - `GET /api/teachers/{staffCode}/availability?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00` (timetable availability only; it does not confirm the teacher's physical location)
 - `GET /api/rooms/available?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00&minCapacity=40`
@@ -34,6 +35,7 @@ Timetable times use 24-hour `HH:mm` values. Week pattern values are `EVERY_WEEK`
 
 
 Admin calendar setup: PUT /api/admin/academic-calendar with {"weekAStartDate":"YYYY-MM-DD"}. The date must be a Monday. Query a date with GET /api/admin/academic-calendar/week-pattern?date=YYYY-MM-DD.
+
 
 
 

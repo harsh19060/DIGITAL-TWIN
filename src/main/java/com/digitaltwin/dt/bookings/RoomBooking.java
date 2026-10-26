@@ -46,6 +46,10 @@ public class RoomBooking {
     private BookingStatus status;
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
+    @Column(name = "cancelled_at")
+    private Instant cancelledAt;
+    @Column(name = "cancellation_reason", length = 300)
+    private String cancellationReason;
 
     protected RoomBooking() { }
 
@@ -72,4 +76,13 @@ public class RoomBooking {
     public LocalTime getEndTime() { return endTime; }
     public BookingStatus getStatus() { return status; }
     public Instant getCreatedAt() { return createdAt; }
+    public Instant getCancelledAt() { return cancelledAt; }
+    public String getCancellationReason() { return cancellationReason; }
+
+    public void cancel(String reason) {
+        this.status = BookingStatus.CANCELLED;
+        this.cancelledAt = Instant.now();
+        this.cancellationReason = reason;
+    }
 }
+

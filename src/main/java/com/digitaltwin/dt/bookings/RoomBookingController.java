@@ -4,6 +4,7 @@ import jakarta.validation.Valid;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,9 +32,20 @@ public class RoomBookingController {
         return bookingService.confirm(request);
     }
 
+    @PostMapping("/{bookingId}/cancel")
+    public BookingResponse cancel(@PathVariable Long bookingId,
+                                  @Valid @RequestBody CancellationRequest request) {
+        return bookingService.cancel(bookingId, request.reason());
+    }
+
     @GetMapping
     public List<BookingResponse> listForDate(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return bookingService.listForDate(date);
     }
+    public record CancellationRequest(@jakarta.validation.constraints.NotBlank @jakarta.validation.constraints.Size(max = 300) String reason) {
+    }
+
 }
+
+

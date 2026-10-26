@@ -6,4 +6,6 @@ import java.util.List;
 
 public interface RoomBookingRepository extends JpaRepository<RoomBooking, Long> {
     List<RoomBooking> findAllByClassDateAndStatusOrderByStartTimeAsc(LocalDate classDate, BookingStatus status);
+    List<RoomBooking> findAllByClassDateOrderByStartTimeAsc(LocalDate classDate);
 }
+
