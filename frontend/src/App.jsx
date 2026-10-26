@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
 import BranchedMenu from './components/BranchedMenu'
 import FuseButton from './components/FuseButton'
@@ -453,6 +453,8 @@ function TimetablePage({ credentials, adminOnly = false }) {
 function MessagesPage({ credentials, identity }) {
   const [contacts, setContacts] = useState([])
   const [selectedKey, setSelectedKey] = useState('')
+  const [activeTarget, setActiveTarget] = useState(null)
+  const [unreadBoundary, setUnreadBoundary] = useState(null)
   const [feed, setFeed] = useState([])
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
@@ -465,9 +467,33 @@ function MessagesPage({ credentials, identity }) {
   const refreshContacts = useCallback(async () => {
     try {
       const items = await api('/api/messages/contacts', credentials)
-      setContacts(items)
-      setSelectedKey((current) => current || contactKey(items.find((item) => item.conversationType === 'DIRECT' && item.participantType === 'SYSTEM') || items[0] || {}))
-    } catch (problem) { setError(problem.message) }
+      setContacts((current) => JSON.stringify(current) === JSON.stringify(items) ? current : items)
+      if (!selectedKey && items.length) {
+        const initial = items.find((item) => item.conversationType === 'DIRECT' && item.participantType === 'SYSTEM') || items[0]
+        setSelectedKey(contactKey(initial))
+        setActiveTarget(initial)
+        setUnreadBoundary(initial.unreadCount > 0
+          ? { key: contactKey(initial), after: initial.lastReadAt, show: true }
+          : null)
+      }
+      return items
+    } catch (problem) {
+      setError(problem.message)
+      return []
+    }
+  }, [credentials, selectedKey])
+
+  const markConversationRead = useCallback(async (contact) => {
+    await api('/api/messages/read', credentials, { method: 'POST', body: JSON.stringify({
+      conversationType: contact.conversationType,
+      participantType: contact.participantType,
+      code: contact.code,
+    }) })
+    const readAt = new Date().toISOString()
+    const key = contactKey(contact)
+    setContacts((current) => current.map((item) => contactKey(item) === key
+      ? { ...item, unreadCount: 0, lastReadAt: readAt }
+      : item))
   }, [credentials])
 
   const loadConversation = useCallback(async (contact = selected) => {
@@ -479,21 +505,24 @@ function MessagesPage({ credentials, identity }) {
       '/' + contact.participantType + '/' + encodeURIComponent(contact.code)
     setBusy(true)
     setError('')
-    try { setFeed(await api(path, credentials)) }
-    catch (problem) { setFeed([]); setError(problem.message) }
+    try {
+      setFeed(await api(path, credentials))
+      if (contact.unreadCount > 0) markConversationRead(contact).catch((problem) => setError(problem.message))
+    } catch (problem) { setFeed([]); setError(problem.message) }
     finally { setBusy(false) }
-  }, [selected, identity, credentials])
+  }, [selected, identity, credentials, markConversationRead])
 
   useEffect(() => {
     const timer = window.setTimeout(refreshContacts, 0)
     return () => window.clearTimeout(timer)
   }, [refreshContacts])
+
   useEffect(() => {
     const timer = window.setTimeout(() => loadConversation(selected), 0)
     return () => window.clearTimeout(timer)
   }, [loadConversation, selected])
   useEffect(() => {
-    const timer = window.setInterval(refreshContacts, 15000)
+    const timer = window.setInterval(refreshContacts, 10000)
     return () => window.clearInterval(timer)
   }, [refreshContacts])
 
@@ -527,6 +556,10 @@ function MessagesPage({ credentials, identity }) {
             try {
               const message = JSON.parse(data)
               setFeed((current) => current.some((item) => item.id === message.id) ? current : [...current, message].slice(-100))
+              const own = message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase()
+                && message.senderType === identity.participantType
+              if (!own) markConversationRead(selected).catch((problem) => setError(problem.message))
+              refreshContacts()
             } catch { /* The initial connection event has no message payload. */ }
           }
         }
@@ -536,7 +569,7 @@ function MessagesPage({ credentials, identity }) {
     }
     listen()
     return () => controller.abort()
-  }, [streamPath, credentials])
+  }, [streamPath, credentials, identity, selected, markConversationRead, refreshContacts])
 
   async function resolveContact(target) {
     const known = contacts.find((contact) => contact.code.toLowerCase() === target.toLowerCase())
@@ -555,29 +588,55 @@ function MessagesPage({ credentials, identity }) {
     throw new Error('No teacher, student, or class matches @' + target + '. Check the short code.')
   }
 
+  function openContact(contact) {
+    const key = contactKey(contact)
+    setUnreadBoundary(contact.unreadCount > 0 ? { key, after: contact.lastReadAt, show: true } : null)
+    setActiveTarget(contact)
+    setSelectedKey(key)
+  }
+
   async function submitMessage(event) {
     event?.preventDefault?.()
     if (sending) return
-    const match = draft.trim().match(/^@(\S+)\s+([\s\S]+)$/)
-    if (!match) { setError('Start with a contact: @system, @A7, @ALS, @AS, or @all, then write your message.'); return }
-    const targetName = match[1].replace(/,$/, '')
-    const body = match[2].trim()
-    if (!body) { setError('Write a message after the @contact.'); return }
+    const trimmed = draft.trim()
+    const startsWithMention = trimmed.startsWith('@')
+    const match = startsWithMention ? trimmed.match(/^@(\S+)(?:\s+([\s\S]*))?$/) : null
+    if (startsWithMention && !match) { setError('Use a contact mention like @ALS followed by your message.'); return }
+
+    let target
+    let body
+    if (match) {
+      const targetName = match[1].replace(/,$/, '')
+      body = (match[2] || '').trim()
+      if (!body) { setError('Write a message after the @contact.'); return }
+      if (targetName.toLowerCase() === 'system') {
+        target = contacts.find((item) => item.conversationType === 'DIRECT' && item.participantType === 'SYSTEM')
+          || { conversationType: 'DIRECT', participantType: 'SYSTEM', code: 'SYSTEM', displayName: 'Campus system' }
+      } else if (targetName.toLowerCase() === 'all') {
+        target = contacts.find((item) => item.conversationType === 'GLOBAL')
+          || { conversationType: 'GLOBAL', participantType: null, code: 'ALL', displayName: 'Building-wide' }
+      } else {
+        try { target = await resolveContact(targetName) }
+        catch (problem) { setError(problem.message); return }
+      }
+    } else {
+      target = activeTarget
+      body = trimmed
+      if (!target) { setError('Start with a contact such as @system, @A7, @ALS, @AS, or @all.'); return }
+      if (!body) return
+    }
+
     setSending(true)
     setError('')
     try {
-      let target
-      if (targetName.toLowerCase() === 'system') {
-        target = { conversationType: 'DIRECT', participantType: 'SYSTEM', code: 'SYSTEM', displayName: 'Campus system' }
+      if (target.conversationType === 'DIRECT' && target.participantType === 'SYSTEM') {
         await api('/api/system/command', credentials, { method: 'POST', body: JSON.stringify({ command: body }) })
-      } else if (targetName.toLowerCase() === 'all') {
-        target = { conversationType: 'GLOBAL', participantType: null, code: 'ALL', displayName: 'Building-wide' }
+      } else if (target.conversationType === 'GLOBAL') {
         await api('/api/messages', credentials, { method: 'POST', body: JSON.stringify({
           senderType: identity.participantType, senderCode: identity.participantCode, audience: 'GLOBAL',
           recipientType: null, recipientCode: null, category: 'GENERAL', body,
         }) })
       } else {
-        target = await resolveContact(targetName)
         const section = target.conversationType === 'SECTION'
         await api('/api/messages', credentials, { method: 'POST', body: JSON.stringify({
           senderType: identity.participantType, senderCode: identity.participantCode,
@@ -587,52 +646,65 @@ function MessagesPage({ credentials, identity }) {
         }) })
       }
       setDraft('')
-      setContacts((current) => [target, ...current.filter((item) => contactKey(item) !== contactKey(target))])
+      setActiveTarget(target)
       setSelectedKey(contactKey(target))
-      await refreshContacts()
-      await loadConversation(target)
+      setUnreadBoundary(target.unreadCount > 0
+        ? { key: contactKey(target), after: target.lastReadAt, show: true }
+        : null)
+      const updatedContacts = await refreshContacts()
+      const savedTarget = updatedContacts.find((item) => contactKey(item) === contactKey(target)) || target
+      if (savedTarget.unreadCount > 0) markConversationRead(savedTarget).catch((problem) => setError(problem.message))
     } catch (problem) { setError(problem.message) }
     finally { setSending(false) }
   }
 
+  const selectedConversationKey = selected ? contactKey(selected) : ''
+  let unreadDividerShown = false
   return <>
-    <div className="page-heading"><span className="eyebrow">YOUR CAMPUS INBOX</span><h1>Messages <span className="heading-serif">with the right people.</span></h1><p>Start each message with a contact mention to open or create that conversation.</p></div>
+    <div className="page-heading"><span className="eyebrow">YOUR CAMPUS INBOX</span><h1>Messages <span className="heading-serif">with the right people.</span></h1><p>Start with @contact, then keep messaging that person until you mention someone else.</p></div>
     <div className="messenger-layout">
       <aside className="surface contacts-panel">
         <div className="contacts-heading"><div><span className="eyebrow">INBOX</span><h2>Your conversations</h2></div><span className="contact-count">{contacts.length}</span></div>
         <label className="contact-search"><span>⌕</span><input placeholder="Find a contact" value={search} onChange={(event) => setSearch(event.target.value)}/></label>
-        <div className="contact-list">{filteredContacts.map((contact) => <button key={contactKey(contact)} className={'contact-row ' + (contactKey(contact) === selectedKey ? 'active' : '')} onClick={() => setSelectedKey(contactKey(contact))}>
+        <div className="contact-list">{filteredContacts.map((contact) => <button key={contactKey(contact)} className={'contact-row ' + (contactKey(contact) === selectedKey ? 'active ' : '') + (contact.unreadCount > 0 ? 'unread' : '')} onClick={() => openContact(contact)}>
           <span className={'contact-avatar ' + (contact.participantType === 'SYSTEM' ? 'system' : contact.conversationType === 'SECTION' ? 'section' : '')}>{contact.conversationType === 'GLOBAL' ? '@' : contact.participantType === 'SYSTEM' ? '✳' : contact.code.slice(0, 1).toUpperCase()}</span>
           <span className="contact-copy"><strong>{contact.displayName}</strong><small>{contact.lastMessage || (contact.conversationType === 'GLOBAL' ? 'Building-wide messages' : 'Start a conversation')}</small></span>
+          {contact.unreadCount > 0 && <span className="unread-badge" aria-label={`${contact.unreadCount} unread messages`}>{contact.unreadCount > 99 ? '99+' : contact.unreadCount}</span>}
           {contact.conversationType === 'SECTION' && <span className="contact-kind">CLASS</span>}
         </button>)}</div>
         <div className="account-identity"><span className="avatar">{identity.participantCode.slice(0, 1).toUpperCase()}</span><span><strong>{identity.role === 'TEACHER' ? 'Teacher' : 'Student'}</strong><small>{identity.participantCode}</small></span></div>
       </aside>
       <section className="surface conversation-panel">
         <div className="conversation-header">{selected ? <><div><span className="eyebrow">{selected.conversationType === 'GLOBAL' ? 'BUILDING-WIDE' : selected.conversationType === 'SECTION' ? 'CLASS CHAT' : selected.participantType === 'SYSTEM' ? 'CAMPUS ASSISTANT' : 'DIRECT MESSAGE'}</span><h2>{selected.displayName}</h2></div><span className="chat-live"><i/> Live</span></> : <div><span className="eyebrow">MESSAGES</span><h2>Choose a conversation</h2></div>}</div>
-        <div className="conversation-feed">{error && <div className="form-error" role="alert">{error}</div>}{busy ? <EmptyState loading title="Loading conversation" text=""/> : feed.length ? feed.map((message) => <MessageBubble key={message.id} message={message} own={message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase() && message.senderType === identity.participantType}/>) : <EmptyState title={selected ? 'No messages here yet' : 'Your inbox is ready'} text={selected ? 'Send the first note using the @contact box below.' : 'Type @system, @A7, or a teacher code to start a chat.'}/>}</div>
+        <div className="conversation-feed">{error && <div className="form-error" role="alert">{error}</div>}{busy ? <EmptyState loading title="Loading conversation" text=""/> : feed.length ? feed.map((message) => {
+          const own = message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase() && message.senderType === identity.participantType
+          const unread = unreadBoundary?.key === selectedConversationKey && unreadBoundary.show && !own
+            && (!unreadBoundary.after || new Date(message.createdAt) > new Date(unreadBoundary.after))
+          const showDivider = unread && !unreadDividerShown
+          if (showDivider) unreadDividerShown = true
+          return <Fragment key={message.id}>{showDivider && <div className="unread-divider">Unread messages</div>}<MessageBubble message={message} own={own} unread={unread}/></Fragment>
+        }) : <EmptyState title={selected ? 'No messages here yet' : 'Your inbox is ready'} text={selected ? 'Send the first note using the @contact box below.' : 'Type @system, @A7, or a teacher code to start a chat.'}/>}</div>
         <form className="command-composer" onSubmit={submitMessage}>
           <div className="composer-account"><span>Signed in as</span><strong>{identity.participantType} · {identity.participantCode}</strong></div>
-          <div className="command-input"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitMessage() } }} maxLength={2000} placeholder="Try: @system currently free classrooms" aria-label="Message with an @contact mention" />
+          <div className="command-input"><textarea value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); submitMessage() } }} maxLength={2000} placeholder={activeTarget ? `Message to ${activeTarget.displayName}; start with @ to switch` : 'Start with @system, @A7, @ALS, @AS, or @all'} aria-label="Message with an @contact mention" />
             <FuseButton className="message-send-fuse" label={sending ? 'Sending' : 'Send'} undoLabel="Undo" doneLabel="Sent"
               icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5m-7 7 7-7 7 7" /></svg>}
               color="#ffffff" background="#506f58" fuseColor="#e8c77a" size="sm" radius={9} undoWindow={1400}
               fuse="bottom" fuseThickness={2} commitOn="fuseEnd" pauseOnHover={false} settle="reset"
               disabled={sending || !draft.trim()} onCommit={submitMessage}/>
           </div>
-          <div className="composer-hint">Use <strong>@system</strong> for campus requests, <strong>@A7</strong> for a class, <strong>@ALS</strong>/<strong>@AS</strong> for teachers, or <strong>@all</strong> for everyone. Enter sends; Shift+Enter adds a line.</div>
+          <div className="composer-hint">{activeTarget ? <>Sending to <strong>{activeTarget.displayName}</strong>. Keep typing to continue; mention <strong>@</strong> followed by another contact to switch.</> : <>Start with <strong>@system</strong>, <strong>@A7</strong>, <strong>@ALS</strong>/<strong>@AS</strong>, or <strong>@all</strong>.</>} Enter sends; Shift+Enter adds a line.</div>
         </form>
       </section>
     </div>
   </>
 }
-
 function contactKey(contact) {
   return contact.conversationType + ':' + (contact.participantType || '') + ':' + contact.code
 }
-function MessageBubble({ message, own = false }) {
+function MessageBubble({ message, own = false, unread = false }) {
   const initials = message.senderCode?.split(/[_\s-]/).filter(Boolean).slice(-1)[0]?.slice(0, 1).toUpperCase() || '?'
-  return <article className={`message-item ${own ? 'own-message' : ''}`}><span className={`message-avatar ${message.senderType === 'TEACHER' ? 'teacher' : message.senderType === 'SYSTEM' ? 'system' : ''}`}>{initials}</span><div className="message-content"><div className="message-meta"><strong>{message.senderType === 'SYSTEM' ? 'Campus system' : message.senderCode}</strong><span>{message.senderType?.toLowerCase()}</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.body}</p><span className={`category-chip ${message.category?.toLowerCase()}`}>{message.category?.replace('_', ' ')}</span></div></article>
+  return <article className={`message-item ${own ? 'own-message' : ''} ${unread ? 'unread-message' : ''}`}><span className={`message-avatar ${message.senderType === 'TEACHER' ? 'teacher' : message.senderType === 'SYSTEM' ? 'system' : ''}`}>{initials}</span><div className="message-content"><div className="message-meta"><strong>{message.senderType === 'SYSTEM' ? 'Campus system' : message.senderCode}</strong><span>{message.senderType?.toLowerCase()}</span><time>{new Date(message.createdAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</time></div><p>{message.body}</p><span className={`category-chip ${message.category?.toLowerCase()}`}>{message.category?.replace('_', ' ')}</span></div></article>
 }
 
 export default App

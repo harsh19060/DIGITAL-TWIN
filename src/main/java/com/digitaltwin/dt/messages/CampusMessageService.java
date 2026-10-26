@@ -28,16 +28,19 @@ public class CampusMessageService {
     private final CampusStudentRepository studentRepository;
     private final CampusMessageStream messageStream;
     private final ApplicationEventPublisher eventPublisher;
+    private final MessageReadStateRepository readStateRepository;
 
     public CampusMessageService(CampusMessageRepository messageRepository, TeacherRepository teacherRepository,
                                 SectionRepository sectionRepository, CampusStudentRepository studentRepository,
-                                CampusMessageStream messageStream, ApplicationEventPublisher eventPublisher) {
+                                CampusMessageStream messageStream, ApplicationEventPublisher eventPublisher,
+                                MessageReadStateRepository readStateRepository) {
         this.messageRepository = messageRepository;
         this.teacherRepository = teacherRepository;
         this.sectionRepository = sectionRepository;
         this.studentRepository = studentRepository;
         this.messageStream = messageStream;
         this.eventPublisher = eventPublisher;
+        this.readStateRepository = readStateRepository;
     }
 
     @Transactional
@@ -81,9 +84,18 @@ public class CampusMessageService {
         Pageable page = PageRequest.of(0, 200);
         java.util.Map<String, ContactResponse> contacts = new java.util.LinkedHashMap<>();
         contacts.put("DIRECT:SYSTEM:system", new ContactResponse("DIRECT", ParticipantType.SYSTEM, "SYSTEM",
-                "Campus system", "Ask about free rooms or class changes", null));
+                "Campus system", "Ask about free rooms or class changes", null, null, null,
+                readAt(type, code, directKey(type, code, ParticipantType.SYSTEM, "SYSTEM")),
+                unreadDirect(type, code, ParticipantType.SYSTEM, "SYSTEM")));
+
+        List<CampusMessage> latestGlobal = messageRepository.findAllByAudienceOrderByCreatedAtDesc(
+                MessageAudience.GLOBAL, PageRequest.of(0, 1));
+        CampusMessage global = latestGlobal.isEmpty() ? null : latestGlobal.get(0);
         contacts.put("GLOBAL", new ContactResponse("GLOBAL", null, "ALL", "Building-wide",
-                "Messages for everyone in the building", null));
+                global == null ? "Messages for everyone in the building" : global.getBody(),
+                global == null ? null : global.getCreatedAt(),
+                global == null ? null : global.getSenderType(), global == null ? null : global.getSenderCode(),
+                readAt(type, code, "global"), unreadGlobal(type, code)));
 
         for (CampusMessage message : messageRepository.findDirectForParticipant(MessageAudience.DIRECT, type, code, page)) {
             boolean sentByMe = message.getSenderType() == type && message.getSenderCode().equalsIgnoreCase(code);
@@ -94,7 +106,10 @@ public class CampusMessageService {
             if (current == null || current.lastMessageAt() == null
                     || message.getCreatedAt().isAfter(current.lastMessageAt())) {
                 contacts.put(key, new ContactResponse("DIRECT", otherType, otherCode,
-                        contactName(otherType, otherCode), message.getBody(), message.getCreatedAt()));
+                        contactName(otherType, otherCode), message.getBody(), message.getCreatedAt(),
+                        message.getSenderType(), message.getSenderCode(),
+                        readAt(type, code, directKey(type, code, otherType, otherCode)),
+                        unreadDirect(type, code, otherType, otherCode)));
             }
         }
 
@@ -126,11 +141,70 @@ public class CampusMessageService {
         List<CampusMessage> history = messageRepository.findSectionConversationForParticipant(
                 MessageAudience.SECTION, sectionCode, type, code, page);
         CampusMessage latest = history.isEmpty() ? null : history.get(0);
+        String key = sectionKey(sectionCode);
         return new ContactResponse("SECTION", ParticipantType.SECTION, sectionCode, "Class " + sectionCode,
                 latest == null ? "Section conversation" : latest.getBody(),
-                latest == null ? null : latest.getCreatedAt());
+                latest == null ? null : latest.getCreatedAt(),
+                latest == null ? null : latest.getSenderType(), latest == null ? null : latest.getSenderCode(),
+                readAt(type, code, key), unreadSection(type, code, sectionCode));
     }
 
+    @Transactional
+    public java.time.Instant markConversationRead(ParticipantType participantType, String participantCode,
+                                                   String conversationType, ParticipantType otherType, String otherCode) {
+        String key = switch (conversationType.toUpperCase(Locale.ROOT)) {
+            case "DIRECT" -> {
+                validateDirectParticipant(participantType, participantCode);
+                validateDirectParticipant(otherType, otherCode);
+                yield directKey(participantType, participantCode, otherType, otherCode);
+            }
+            case "SECTION" -> {
+                String section = otherCode == null || otherCode.isBlank() ? "" : otherCode.trim();
+                if (sectionRepository.findByCodeIgnoreCase(section).isEmpty()) throw notFound("Section", section);
+                yield sectionKey(section);
+            }
+            case "GLOBAL" -> "global";
+            default -> throw badRequest("Conversation type must be DIRECT, SECTION, or GLOBAL");
+        };
+        String normalizedCode = participantCode.trim();
+        MessageReadState state = readStateRepository
+                .findByParticipantTypeAndParticipantCodeIgnoreCaseAndConversationKey(
+                        participantType, normalizedCode, key)
+                .orElseGet(() -> new MessageReadState(participantType, normalizedCode, key, java.time.Instant.now()));
+        java.time.Instant now = java.time.Instant.now();
+        state.markReadAt(now);
+        readStateRepository.save(state);
+        return now;
+    }
+
+    private java.time.Instant readAt(ParticipantType type, String code, String key) {
+        return readStateRepository.findByParticipantTypeAndParticipantCodeIgnoreCaseAndConversationKey(type, code, key)
+                .map(MessageReadState::getLastReadAt).orElse(null);
+    }
+
+    private long unreadDirect(ParticipantType type, String code, ParticipantType peerType, String peerCode) {
+        java.time.Instant after = readAt(type, code, directKey(type, code, peerType, peerCode));
+        return messageRepository.countIncomingDirect(MessageAudience.DIRECT, peerType, peerCode, type, code,
+                after == null ? java.time.Instant.EPOCH : after);
+    }
+
+    private long unreadSection(ParticipantType type, String code, String sectionCode) {
+        java.time.Instant after = readAt(type, code, sectionKey(sectionCode));
+        return messageRepository.countIncomingSection(MessageAudience.SECTION, sectionCode, type, code,
+                after == null ? java.time.Instant.EPOCH : after);
+    }
+
+    private long unreadGlobal(ParticipantType type, String code) {
+        java.time.Instant after = readAt(type, code, "global");
+        return messageRepository.countIncomingGlobal(MessageAudience.GLOBAL, type, code,
+                after == null ? java.time.Instant.EPOCH : after);
+    }
+
+    private String directKey(ParticipantType firstType, String firstCode, ParticipantType secondType, String secondCode) {
+        return CampusMessageStream.directChannel(firstType, firstCode, secondType, secondCode);
+    }
+
+    private String sectionKey(String sectionCode) { return "section:" + sectionCode.trim().toLowerCase(Locale.ROOT); }
     private String contactName(ParticipantType type, String code) {
         if (type == ParticipantType.SYSTEM) return "Campus system";
         if (type == ParticipantType.TEACHER) return teacherRepository.findByStaffCodeIgnoreCase(code)
@@ -244,7 +318,7 @@ public class CampusMessageService {
         return new ResponseStatusException(HttpStatus.NOT_FOUND, type + " not found: " + value);
     }
 
-    public record ContactResponse(String conversationType, ParticipantType participantType, String code, String displayName, String lastMessage, java.time.Instant lastMessageAt) { }
+    public record ContactResponse(String conversationType, ParticipantType participantType, String code, String displayName, String lastMessage, java.time.Instant lastMessageAt, ParticipantType lastMessageSenderType, String lastMessageSenderCode, java.time.Instant lastReadAt, long unreadCount) { }
 
     public record SendMessageRequest(
             @NotNull ParticipantType senderType,

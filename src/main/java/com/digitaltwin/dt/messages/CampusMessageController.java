@@ -54,6 +54,18 @@ public class CampusMessageController {
         return messageService.contacts(identity.participantType(), identity.participantCode());
     }
 
+    @PostMapping("/read")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void markRead(@Valid @RequestBody ReadRequest request, Authentication authentication) {
+        var identity = identityService.requireParticipant(authentication);
+        String type = request.conversationType().trim().toUpperCase(java.util.Locale.ROOT);
+        if ("SECTION".equals(type)) assertSectionAccess(request.code(), authentication);
+        if ("DIRECT".equals(type) && (request.participantType() == null || request.code() == null || request.code().isBlank())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct read receipts require a participant type and code");
+        }
+        messageService.markConversationRead(identity.participantType(), identity.participantCode(), type,
+                request.participantType(), request.code());
+    }
     @GetMapping("/direct/{firstType}/{firstCode}/{secondType}/{secondCode}")
     public List<CampusMessageResponse> directConversation(@PathVariable ParticipantType firstType,
                                                            @PathVariable String firstCode,
@@ -92,6 +104,9 @@ public class CampusMessageController {
     @GetMapping("/global")
     public List<CampusMessageResponse> globalFeed() { return messageService.globalFeed(); }
 
+    public record ReadRequest(@jakarta.validation.constraints.NotBlank String conversationType,
+                              ParticipantType participantType,
+                              @jakarta.validation.constraints.Size(max = 60) String code) { }
     private void assertConversationParticipant(ParticipantType firstType, String firstCode,
                                                ParticipantType secondType, String secondCode,
                                                Authentication authentication) {

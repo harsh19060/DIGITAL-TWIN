@@ -480,6 +480,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .contact-list { min-height: 0; flex: 1; overflow-y: auto; }
 .contact-row { display: flex; width: 100%; align-items: center; gap: 9px; border: 0; border-radius: 9px; padding: 9px 7px; background: transparent; text-align: left; }
 .contact-row:hover, .contact-row.active { background: #f1f5ed; }
+.contact-row.unread { background: #f7faf4; }
+.contact-row.unread .contact-copy strong { color: #304c39; font-weight: 800; }
+.unread-badge { flex: 0 0 auto; min-width: 17px; border-radius: 999px; padding: 3px 5px; background: #55785d; color: #fff; text-align: center; font-size: 8px; font-weight: 800; }
 .contact-avatar { display: grid; flex: 0 0 auto; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: #e8edf0; color: #5b7480; font-size: 10px; font-weight: 700; }
 .contact-avatar.system { color: #68875f; background: #eff5e9; font-size: 15px; }
 .contact-avatar.section { color: #986b54; background: #f6e9df; }
@@ -498,6 +501,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .conversation-feed .empty-state { min-height: 170px; }
 .conversation-feed .message-item { width: fit-content; max-width: min(88%, 560px); padding: 9px 11px; border: 1px solid #edf0ed; border-radius: 12px 12px 12px 3px; background: #fbfcfa; }
 .conversation-feed .message-item.own-message { align-self: flex-end; border-color: #e1eadb; border-radius: 12px 12px 3px 12px; background: #f1f6ed; }
+.unread-divider { display: flex; align-items: center; gap: 8px; color: #ad624a; font-size: 8px; font-weight: 800; letter-spacing: .5px; text-transform: uppercase; }
+.unread-divider::before, .unread-divider::after { content: ''; height: 1px; flex: 1; background: #e2b9aa; }
+.conversation-feed .message-item.unread-message:not(.own-message) { border-color: #d7a18a; box-shadow: 0 0 0 1px #d7a18a33; }
 .conversation-feed .message-content p { margin-bottom: 2px; font-size: 10px; }
 .command-composer { padding: 11px 15px 12px; border-top: 1px solid #edf0ed; background: #fcfdfb; }
 .composer-account { display: flex; align-items: center; gap: 7px; margin-bottom: 7px; color: #94a09b; font-size: 8px; }
@@ -511,6 +517,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dark-mode .demo-accounts, .dark-mode .conversation-feed .message-item { background: #213840; border-color: #31474e; }
 .dark-mode .demo-accounts button { background: #1d323a; border-color: #3a5056; color: #c4d4c9; }
 .dark-mode .contacts-heading h2, .dark-mode .conversation-header h2, .dark-mode .contact-copy strong { color: #dce7e1; }
+.dark-mode .contact-row.unread { background: #263c32; }
+.dark-mode .unread-badge { background: #85a986; color: #13271e; }
+.dark-mode .unread-divider { color: #e2a48c; }
+.dark-mode .unread-divider::before, .dark-mode .unread-divider::after { background: #845b4d; }
+.dark-mode .conversation-feed .message-item.unread-message:not(.own-message) { border-color: #b57963; box-shadow: 0 0 0 1px #b5796333; }
 .dark-mode .contact-search { border-color: #31474e; }
 .dark-mode .contact-search input { color: #dce7e1; }
 .dark-mode .contact-row:hover, .dark-mode .contact-row.active, .dark-mode .conversation-feed .message-item.own-message { background: #2b4037; border-color: #3d5744; }

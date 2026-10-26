@@ -40,4 +40,27 @@ public interface CampusMessageRepository extends JpaRepository<CampusMessage, Lo
                                                               @Param("senderType") ParticipantType senderType,
                                                               @Param("senderCode") String senderCode,
                                                               Pageable pageable);
-}
+
+    @Query("select count(m) from CampusMessage m where m.audience = :audience and m.createdAt > :after " +
+            "and m.senderType = :peerType and lower(m.senderCode) = lower(:peerCode) " +
+            "and m.recipientType = :participantType and lower(m.recipientCode) = lower(:participantCode)")
+    long countIncomingDirect(@Param("audience") MessageAudience audience,
+                             @Param("peerType") ParticipantType peerType, @Param("peerCode") String peerCode,
+                             @Param("participantType") ParticipantType participantType,
+                             @Param("participantCode") String participantCode,
+                             @Param("after") java.time.Instant after);
+
+    @Query("select count(m) from CampusMessage m where m.audience = :audience and " +
+            "lower(m.recipientCode) = lower(:sectionCode) and m.createdAt > :after and " +
+            "(m.senderType <> :participantType or lower(m.senderCode) <> lower(:participantCode))")
+    long countIncomingSection(@Param("audience") MessageAudience audience, @Param("sectionCode") String sectionCode,
+                              @Param("participantType") ParticipantType participantType,
+                              @Param("participantCode") String participantCode,
+                              @Param("after") java.time.Instant after);
+
+    @Query("select count(m) from CampusMessage m where m.audience = :audience and m.createdAt > :after and " +
+            "(m.senderType <> :participantType or lower(m.senderCode) <> lower(:participantCode))")
+    long countIncomingGlobal(@Param("audience") MessageAudience audience,
+                             @Param("participantType") ParticipantType participantType,
+                             @Param("participantCode") String participantCode,
+                             @Param("after") java.time.Instant after);}
