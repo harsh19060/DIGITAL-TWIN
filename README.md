@@ -11,6 +11,10 @@ Spring Boot backend for the university building digital twin.
 
 The local development API uses HTTP Basic authentication: username `dev`, password `dev-only-change-me` unless `APP_DEV_PASSWORD` is set. This is a development-only account; replace it with university sign-in before deployment.
 
+## React web app
+
+The responsive React client is in `frontend/`. Follow [frontend/README.md](frontend/README.md) to run it alongside the API. It includes room status, teacher lookup, timetable browsing, campus messages, and a PWA app shell.
+
 ## Current API
 
 - `GET /api/health`
