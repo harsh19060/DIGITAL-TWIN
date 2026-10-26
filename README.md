@@ -31,6 +31,7 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `POST /api/messages` (direct, section, or global message)
 - `GET /api/messages/direct/{firstType}/{firstCode}/{secondType}/{secondCode}` (shared direct conversation history)
 - `GET /api/messages/section/{sectionCode}` and `GET /api/messages/global` (section chat and global feed; latest 100 messages)
+- `GET /api/messages/stream/...` (Server-Sent Events for live direct, section, and global messages)
 - `GET /api/teachers/{staffCode}/availability?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00` (timetable availability only; it does not confirm the teacher's physical location)
 - `GET /api/rooms/available?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00&minCapacity=40`
 

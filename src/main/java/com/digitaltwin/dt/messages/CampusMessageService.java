@@ -6,15 +6,18 @@ import com.digitaltwin.dt.teachers.TeacherRepository;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class CampusMessageService {
@@ -23,13 +26,18 @@ public class CampusMessageService {
     private final TeacherRepository teacherRepository;
     private final SectionRepository sectionRepository;
     private final CampusStudentRepository studentRepository;
+    private final CampusMessageStream messageStream;
+    private final ApplicationEventPublisher eventPublisher;
 
     public CampusMessageService(CampusMessageRepository messageRepository, TeacherRepository teacherRepository,
-                                SectionRepository sectionRepository, CampusStudentRepository studentRepository) {
+                                SectionRepository sectionRepository, CampusStudentRepository studentRepository,
+                                CampusMessageStream messageStream, ApplicationEventPublisher eventPublisher) {
         this.messageRepository = messageRepository;
         this.teacherRepository = teacherRepository;
         this.sectionRepository = sectionRepository;
         this.studentRepository = studentRepository;
+        this.messageStream = messageStream;
+        this.eventPublisher = eventPublisher;
     }
 
     @Transactional
@@ -39,9 +47,25 @@ public class CampusMessageService {
         validateParticipants(request, senderCode, recipientCode);
         CampusMessage saved = messageRepository.save(new CampusMessage(request.senderType(), senderCode,
                 request.audience(), request.recipientType(), recipientCode, request.category(), request.body().trim()));
-        return CampusMessageResponse.from(saved);
+        CampusMessageResponse response = CampusMessageResponse.from(saved);
+        eventPublisher.publishEvent(response);
+        return response;
     }
 
+    public SseEmitter subscribeDirect(ParticipantType firstType, String firstCode,
+                                      ParticipantType secondType, String secondCode) {
+        validateDirectParticipant(firstType, firstCode);
+        validateDirectParticipant(secondType, secondCode);
+        return messageStream.subscribe(CampusMessageStream.directChannel(firstType, firstCode, secondType, secondCode));
+    }
+
+    public SseEmitter subscribeSection(String sectionCode) {
+        String code = sectionCode.trim();
+        if (sectionRepository.findByCodeIgnoreCase(code).isEmpty()) throw notFound("Section", code);
+        return messageStream.subscribe("section:" + code.toLowerCase(Locale.ROOT));
+    }
+
+    public SseEmitter subscribeGlobal() { return messageStream.subscribe("global"); }
     @Transactional(readOnly = true)
     public List<CampusMessageResponse> directConversation(ParticipantType firstType, String firstCode,
                                                            ParticipantType secondType, String secondCode) {
