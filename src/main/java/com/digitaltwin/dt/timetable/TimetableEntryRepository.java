@@ -6,11 +6,13 @@ import java.util.List;
 
 public interface TimetableEntryRepository extends JpaRepository<TimetableEntry, Long> {
     List<TimetableEntry> findAllByDayOfWeek(DayOfWeek dayOfWeek);
+    List<TimetableEntry> findAllByDayOfWeekOrderByStartTimeAsc(DayOfWeek dayOfWeek);
     List<TimetableEntry> findAllByOrderByDayOfWeekAscStartTimeAsc();
     List<TimetableEntry> findAllByTeacher_StaffCodeIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String staffCode);
     List<TimetableEntry> findAllBySection_CodeIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String sectionCode);
     List<TimetableEntry> findAllByRoom_RoomNumberIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String roomNumber);
 }
+
 
 
 
