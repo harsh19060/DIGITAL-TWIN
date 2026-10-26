@@ -62,17 +62,18 @@ public class DatedTimetableService {
                                         java.util.List<DatedClass> classes) { }
 
     public record DatedClass(Long timetableEntryId, String subjectCode, String subjectName,
-                             String sectionCode, String teacherName, String roomNumber,
+                             String sectionCode, String teacherCode, String teacherName, String roomNumber,
                              LocalTime startTime, LocalTime endTime, String status,
                              String changeReason) {
         static DatedClass from(TimetableEntry entry, ScheduleChange change) {
             return new DatedClass(entry.getId(), entry.getSubject().getCode(), entry.getSubject().getName(),
-                    entry.getSection().getCode(), entry.getTeacher().getFullName(),
+                    entry.getSection().getCode(), entry.getTeacher().getStaffCode(), entry.getTeacher().getFullName(),
                     entry.getRoom().getRoomNumber(), entry.getStartTime(), entry.getEndTime(),
                     change == null ? "SCHEDULED" : "CANCELLED",
                     change == null ? null : change.getReason());
         }
     }
 }
+
 
 
