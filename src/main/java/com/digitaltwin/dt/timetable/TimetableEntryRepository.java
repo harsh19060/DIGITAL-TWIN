@@ -9,6 +9,8 @@ public interface TimetableEntryRepository extends JpaRepository<TimetableEntry, 
     List<TimetableEntry> findAllByOrderByDayOfWeekAscStartTimeAsc();
     List<TimetableEntry> findAllByTeacher_StaffCodeIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String staffCode);
     List<TimetableEntry> findAllBySection_CodeIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String sectionCode);
+    List<TimetableEntry> findAllByRoom_RoomNumberIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(String roomNumber);
 }
+
 
 

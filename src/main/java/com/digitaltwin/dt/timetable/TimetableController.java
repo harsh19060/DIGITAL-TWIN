@@ -30,11 +30,17 @@ public class TimetableController {
         return timetableService.listForSection(sectionCode);
     }
 
+    @GetMapping("/room/{roomNumber}")
+    public List<TimetableEntryResponse> listForRoom(@PathVariable String roomNumber) {
+        return timetableService.listForRoom(roomNumber);
+    }
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public TimetableEntryResponse create(@Valid @RequestBody TimetableService.CreateTimetableEntryRequest request) {
         return timetableService.create(request);
     }
 }
+
 
 

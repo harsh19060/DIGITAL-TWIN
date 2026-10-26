@@ -65,6 +65,15 @@ public class TimetableService {
                 .stream().map(TimetableEntryResponse::from).toList();
     }
 
+    @Transactional(readOnly = true)
+    public List<TimetableEntryResponse> listForRoom(String roomNumber) {
+        if (roomRepository.findByRoomNumberIgnoreCase(roomNumber.trim()).isEmpty()) {
+            throw notFound("Room", roomNumber);
+        }
+        return entryRepository.findAllByRoom_RoomNumberIgnoreCaseOrderByDayOfWeekAscStartTimeAsc(roomNumber.trim())
+                .stream().map(TimetableEntryResponse::from).toList();
+    }
+
     @Transactional
     public TimetableEntryResponse create(@Valid CreateTimetableEntryRequest request) {
         if (!request.startTime().isBefore(request.endTime())
@@ -122,4 +131,5 @@ public class TimetableService {
             @NotNull LocalTime startTime,
             @NotNull LocalTime endTime) { }
 }
+
 
