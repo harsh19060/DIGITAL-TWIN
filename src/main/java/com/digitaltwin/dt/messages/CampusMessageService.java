@@ -80,7 +80,7 @@ public class CampusMessageService {
     public List<ContactResponse> contacts(ParticipantType type, String code) {
         Pageable page = PageRequest.of(0, 200);
         java.util.Map<String, ContactResponse> contacts = new java.util.LinkedHashMap<>();
-        contacts.put("DIRECT:SYSTEM", new ContactResponse("DIRECT", ParticipantType.SYSTEM, "SYSTEM",
+        contacts.put("DIRECT:SYSTEM:system", new ContactResponse("DIRECT", ParticipantType.SYSTEM, "SYSTEM",
                 "Campus system", "Ask about free rooms or class changes", null));
         contacts.put("GLOBAL", new ContactResponse("GLOBAL", null, "ALL", "Building-wide",
                 "Messages for everyone in the building", null));

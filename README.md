@@ -63,4 +63,9 @@ Admin calendar setup: PUT /api/admin/academic-calendar with {"weekAStartDate":"Y
 Message audiences are DIRECT, SECTION, or GLOBAL; categories are GENERAL, ANNOUNCEMENT, QUESTION, and LOST_FOUND. A direct message is stored once and returned to both participants' conversation view. SECTION messages are delivered into that section's shared chat. GLOBAL messages appear in the building-wide feed.
 
 
-Current-location data is derived from the active timetable, dated cancellations, and confirmed extra-class bookings; it does not track physical presence. Omit t to use the server's current local time.
+Current-location data is derived from the active timetable, dated cancellations, and confirmed extra-class bookings; it does not track physical presence. Omit `at` to use the server's current local time.
+
+
+## Database migrations
+
+For an existing database, apply SQL files in `db/migrations` once, in version order, using psql. The migration `V1__allow_system_chat_messages.sql` updates the participant constraints so the system can store chat requests and replies.
