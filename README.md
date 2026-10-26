@@ -17,6 +17,7 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET, POST /api/rooms`
 - `GET, POST /api/teachers`
 - `GET, POST /api/sections`
+- `GET, POST /api/students` (student directory entries linked to a section)
 - `GET, POST /api/subjects`
 - `GET, POST /api/timetable`
 - `GET /api/timetable/import/template` (downloads a blank Excel template)
@@ -27,6 +28,9 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET /api/bookings?date=YYYY-MM-DD`
 - `POST /api/bookings/{id}/cancel`
 - `GET /api/sections/{sectionCode}/notifications`
+- `POST /api/messages` (direct, section, or global message)
+- `GET /api/messages/direct/{firstType}/{firstCode}/{secondType}/{secondCode}` (shared direct conversation history)
+- `GET /api/messages/section/{sectionCode}` and `GET /api/messages/global` (section chat and global feed; latest 100 messages)
 - `GET /api/teachers/{staffCode}/availability?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00` (timetable availability only; it does not confirm the teacher's physical location)
 - `GET /api/rooms/available?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00&minCapacity=40`
 
@@ -42,3 +46,6 @@ Admin calendar setup: PUT /api/admin/academic-calendar with {"weekAStartDate":"Y
 
 
 
+
+
+Message audiences are DIRECT, SECTION, or GLOBAL; categories are GENERAL, ANNOUNCEMENT, QUESTION, and LOST_FOUND. A direct message is stored once and returned to both participants' conversation view. SECTION messages are delivered into that section's shared chat. GLOBAL messages appear in the building-wide feed.
