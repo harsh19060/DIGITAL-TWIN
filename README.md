@@ -19,6 +19,8 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET, POST /api/sections`
 - `GET, POST /api/subjects`
 - `GET, POST /api/timetable`
+- `GET /api/timetable/import/template` (downloads a blank Excel template)
+- `POST /api/timetable/import` (atomically replaces the base schedule from an Excel workbook; multipart field `file`)
 - `POST /api/timetable/cancellations/teacher/{teacherCode}` (stores dated cancellations and creates section notices)
 - `GET /api/timetable/on-date?date=YYYY-MM-DD` (shows the active Week A/B schedule with dated cancellations applied)
 - `POST /api/bookings/preview` and `POST /api/bookings` (check and confirm extra-class bookings)
@@ -28,7 +30,7 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET /api/teachers/{staffCode}/availability?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00` (timetable availability only; it does not confirm the teacher's physical location)
 - `GET /api/rooms/available?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00&minCapacity=40`
 
-Timetable times use 24-hour `HH:mm` values. Week pattern values are `EVERY_WEEK`, `WEEK_A`, and `WEEK_B`. Schedule changes and Excel import are planned next.
+Timetable times use 24-hour `HH:mm` values. Week pattern values are `EVERY_WEEK`, `WEEK_A`, and `WEEK_B`. Excel imports read the first sheet. The first row must contain these columns in order: `roomNumber`, `teacherCode`, `sectionCode`, `subjectCode`, `dayOfWeek`, `weekPattern`, `startTime`, `endTime`. Use weekdays such as `MONDAY`, week patterns `EVERY_WEEK`, `WEEK_A`, or `WEEK_B` (blank means every week), and 24-hour times such as `09:00`. Imports replace the base timetable only after every row has been parsed and validated; any invalid reference or scheduling conflict leaves the previous timetable intact.
 
 `spring.jpa.hibernate.ddl-auto=update` is enabled for local development only. Use database migrations before deploying this service.
 
