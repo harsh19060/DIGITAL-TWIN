@@ -19,8 +19,10 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `GET, POST /api/sections`
 - `GET, POST /api/subjects`
 - `GET, POST /api/timetable`
+- `GET /api/teachers/{staffCode}/availability?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00` (timetable availability only; it does not confirm the teacher's physical location)
 - `GET /api/rooms/available?dayOfWeek=MONDAY&weekPattern=EVERY_WEEK&startTime=09:00&endTime=10:00&minCapacity=40`
 
 Timetable times use 24-hour `HH:mm` values. Week pattern values are `EVERY_WEEK`, `WEEK_A`, and `WEEK_B`. Schedule changes and Excel import are planned next.
 
 `spring.jpa.hibernate.ddl-auto=update` is enabled for local development only. Use database migrations before deploying this service.
+
