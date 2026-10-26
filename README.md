@@ -24,6 +24,8 @@ The local development API uses HTTP Basic authentication: username `dev`, passwo
 - `POST /api/timetable/import` (atomically replaces the base schedule from an Excel workbook; multipart field `file`)
 - `POST /api/timetable/cancellations/teacher/{teacherCode}` (stores dated cancellations and creates section notices)
 - `GET /api/timetable/on-date?date=YYYY-MM-DD` (shows the active Week A/B schedule with dated cancellations applied)
+- `GET /api/teachers/{staffCode}/current-location?at=YYYY-MM-DDTHH:mm` (scheduled current room/class and next class)
+- `GET /api/rooms/current?at=YYYY-MM-DDTHH:mm` (all rooms with current schedule-derived status)
 - `POST /api/bookings/preview` and `POST /api/bookings` (check and confirm extra-class bookings)
 - `GET /api/bookings?date=YYYY-MM-DD`
 - `POST /api/bookings/{id}/cancel`
@@ -50,3 +52,6 @@ Admin calendar setup: PUT /api/admin/academic-calendar with {"weekAStartDate":"Y
 
 
 Message audiences are DIRECT, SECTION, or GLOBAL; categories are GENERAL, ANNOUNCEMENT, QUESTION, and LOST_FOUND. A direct message is stored once and returned to both participants' conversation view. SECTION messages are delivered into that section's shared chat. GLOBAL messages appear in the building-wide feed.
+
+
+Current-location data is derived from the active timetable, dated cancellations, and confirmed extra-class bookings; it does not track physical presence. Omit t to use the server's current local time.
