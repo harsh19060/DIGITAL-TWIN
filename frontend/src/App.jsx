@@ -327,6 +327,10 @@ function TimetablePage({ credentials }) {
   const [schedule, setSchedule] = useState(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [importFile, setImportFile] = useState(null)
+  const [importBusy, setImportBusy] = useState(false)
+  const [importMessage, setImportMessage] = useState('')
+  const [importError, setImportError] = useState('')
   const load = useCallback(async () => {
     setBusy(true)
     setError('')
@@ -339,8 +343,65 @@ function TimetablePage({ credentials }) {
     return () => window.clearTimeout(timer)
   }, [load])
   const classes = schedule?.classes || []
+
+  async function downloadTemplate() {
+    setImportError('')
+    try {
+      const response = await fetch('/api/timetable/import/template', { headers: { Authorization: authHeader(credentials) } })
+      if (!response.ok) throw new Error((await response.text()) || `Template download failed (${response.status})`)
+      const url = URL.createObjectURL(await response.blob())
+      const link = document.createElement('a')
+      link.href = url
+      link.download = 'university-timetable-template.xlsx'
+      link.click()
+      URL.revokeObjectURL(url)
+    } catch (problem) { setImportError(problem.message) }
+  }
+
+  async function importTimetable(event) {
+    event.preventDefault()
+    if (!importFile) return
+    const confirmed = window.confirm(`Replace the current base timetable with ${importFile.name}? This changes the schedule for the whole building.`)
+    if (!confirmed) return
+    setImportBusy(true)
+    setImportError('')
+    setImportMessage('')
+    try {
+      const formData = new FormData()
+      formData.append('file', importFile)
+      const response = await fetch('/api/timetable/import', {
+        method: 'POST',
+        headers: { Authorization: authHeader(credentials) },
+        body: formData,
+      })
+      const detail = await response.text()
+      if (!response.ok) {
+        let message = detail || `Import failed (${response.status})`
+        try { const parsed = JSON.parse(detail); message = parsed.detail || parsed.message || parsed.error || message } catch { /* backend may return plain text */ }
+        throw new Error(message)
+      }
+      const result = JSON.parse(detail)
+      setImportMessage(`${result.importedEntries} timetable entries imported. ${result.message}`)
+      setImportFile(null)
+      event.target.reset()
+      await load()
+    } catch (problem) { setImportError(problem.message) }
+    finally { setImportBusy(false) }
+  }
+
   return <>
     <div className="page-heading"><span className="eyebrow">THE WEEK, MADE CLEAR</span><h1>Class <span className="heading-serif">timetable.</span></h1><p>Browse the building’s schedule for a date.</p></div>
+    <section className="surface timetable-import">
+      <div className="timetable-import-copy"><span className="eyebrow">ADMIN · BASE SCHEDULE</span><h2>Import a timetable</h2><p>Use the workbook template to validate and replace the building’s recurring timetable.</p></div>
+      <button className="secondary-button template-button" type="button" onClick={downloadTemplate}>↓ &nbsp; Download Excel template</button>
+      <form className="import-form" onSubmit={importTimetable}>
+        <label className="import-file-label">Excel workbook (.xlsx)<input type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" onChange={(event) => { setImportFile(event.target.files?.[0] || null); setImportError(''); setImportMessage('') }}/></label>
+        <button className="primary-button import-submit" type="submit" disabled={!importFile || importBusy}>{importBusy ? 'Importing…' : 'Replace base timetable'} <span>→</span></button>
+      </form>
+      {importFile && <p className="import-selected">Selected: <strong>{importFile.name}</strong></p>}
+      <p className="import-warning">Import replaces the current base schedule across the building. The existing schedule stays intact if validation fails.</p>
+      {importError && <div className="form-error" role="alert">{importError}</div>}{importMessage && <div className="success-note" role="status">✓ {importMessage}</div>}
+    </section>
     <div className="toolbar timetable-toolbar"><label className="date-control"><span>DATE</span><input type="date" value={date} onChange={(event) => setDate(event.target.value)}/></label>{schedule && <span className="week-pill">{schedule.activeWeek}</span>}</div>
     {error && <div className="form-error">{error}</div>}
     <section className="surface timetable-surface"><div className="timetable-date"><div><span className="eyebrow">SCHEDULE FOR</span><h2>{prettyDate(date)}</h2></div><span className="result-count">{classes.length} classes</span></div>{busy ? <EmptyState loading title="Loading timetable" text=""/> : classes.length ? <div className="timeline-list">{classes.map((item) => <ScheduleRow key={`${item.timetableEntryId}-${item.startTime}`} item={item}/>)}</div> : <EmptyState title="No classes scheduled" text="There are no timetable entries for this day."/>}</section>

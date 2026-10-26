@@ -441,3 +441,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   .sign-out { display: inline; }
   .main-area { margin-left: 210px; }
 }
+.timetable-import { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px 18px; align-items: center; padding: 17px 20px; margin-bottom: 16px; }
+.timetable-import-copy h2 { color: var(--ink); font-size: 14px; margin: 4px 0; }
+.timetable-import-copy p, .import-warning { color: #899794; font-size: 9px; margin: 0; }
+.template-button { white-space: nowrap; }
+.import-form { grid-column: 1 / -1; display: flex; align-items: flex-end; gap: 12px; }
+.import-file-label { display: flex; flex: 1; flex-direction: column; gap: 6px; color: #899794; font-size: 9px; font-weight: 600; }
+.import-file-label input { width: 100%; min-width: 0; padding: 7px; border: 1px solid #e6eae6; border-radius: 8px; background: var(--paper); color: #53666b; font-size: 10px; }
+.import-submit { width: auto; min-width: 180px; gap: 16px; margin: 0; }
+.import-selected, .import-warning { grid-column: 1 / -1; }
+.import-selected { color: #788985; font-size: 9px; margin: -5px 0 0; overflow-wrap: anywhere; }
+.import-selected strong { color: #526b59; }
+.import-warning { margin-top: -6px; }
+.dark-mode .timetable-import-copy h2 { color: #e0e9e4; }
+.dark-mode .import-file-label, .dark-mode .import-selected { color: #a7b5b0; }
+.dark-mode .import-file-label input { border-color: #31474e; color: #dce7e1; }
+@media (max-width: 600px) {
+  .timetable-import { grid-template-columns: 1fr; padding: 15px; }
+  .template-button { justify-self: start; }
+  .import-form { flex-direction: column; align-items: stretch; }
+  .import-submit { width: 100%; }
+}
