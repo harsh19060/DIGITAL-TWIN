@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: digital-twin-postgres
+    environment:
+      POSTGRES_DB: digital_twin
+      POSTGRES_USER: digital_twin
+      POSTGRES_PASSWORD: digital_twin_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - digital-twin-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U digital_twin -d digital_twin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  digital-twin-postgres-data:
