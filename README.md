@@ -9,7 +9,7 @@ Spring Boot backend for the university building digital twin.
 3. Copy `application-local.properties.example` to `application-local.properties` and set your local PostgreSQL password there. This local file is ignored by Git.
 4. From this folder, run `mvnw.cmd spring-boot:run` on Windows.
 
-Local development uses three HTTP Basic demo accounts: admin `dev` / `dev-only-change-me`, student `student` / `student-only-change-me`, and teacher `teacher` / `teacher-only-change-me`. Set `APP_ADMIN_PASSWORD`, `APP_STUDENT_PASSWORD`, and `APP_TEACHER_PASSWORD` to change them. The student account maps to code `A7_44` and the teacher account to `ALS` by default; set `APP_STUDENT_CODE` or `APP_TEACHER_CODE` to map to other registered campus records. The admin can only upload the base timetable; class, room, and teacher changes must come through authorized teacher workflows. These in-memory accounts are for local demos only, not production.
+Local development uses three HTTP Basic demo accounts: admin `1234` / `1234`, student `student` / `student-only-change-me`, and teacher `teacher` / `teacher-only-change-me`. Set `APP_ADMIN_USERNAME` and `APP_ADMIN_PASSWORD` to change the admin credentials; use `APP_STUDENT_PASSWORD` and `APP_TEACHER_PASSWORD` for the other accounts. The student account maps to code `A7_44` and the teacher account to `ALS` by default; set `APP_STUDENT_CODE` or `APP_TEACHER_CODE` to map to other registered campus records. The admin can only upload the base timetable; class, room, and teacher changes must come through authorized teacher workflows. These in-memory accounts are for local demos only, not production.
 
 ## React web app
 

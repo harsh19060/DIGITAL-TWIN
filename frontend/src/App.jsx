@@ -254,7 +254,7 @@ function Login({ onLogin }) {
       <div className="demo-accounts" aria-label="Choose a local demo account">
         <span>LOCAL DEMO ACCOUNTS</span>
         <div>
-          <button type="button" onClick={() => { setUsername('dev'); setPassword('dev-only-change-me') }}>Admin</button>
+          <button type="button" onClick={() => { setUsername('1234'); setPassword('1234') }}>Admin</button>
           <button type="button" onClick={() => { setUsername('student'); setPassword('student-only-change-me') }}>Student · A7_44</button>
           <button type="button" onClick={() => { setUsername('teacher'); setPassword('teacher-only-change-me') }}>Teacher · ALS</button>
         </div>
@@ -541,7 +541,7 @@ function MessagesPage({ credentials, identity }) {
   async function resolveContact(target) {
     const known = contacts.find((contact) => contact.code.toLowerCase() === target.toLowerCase())
     if (known) return known
-    if (/^Ad+(?:-[A-Z0-9_-]+)?$/i.test(target)) {
+    if (/^A\d+(?:-[A-Z0-9_-]+)?$/i.test(target)) {
       return { conversationType: 'SECTION', participantType: 'SECTION', code: target.toUpperCase(), displayName: 'Class ' + target.toUpperCase() }
     }
     const [teachers, students] = await Promise.all([
@@ -558,7 +558,7 @@ function MessagesPage({ credentials, identity }) {
   async function submitMessage(event) {
     event?.preventDefault?.()
     if (sending) return
-    const match = draft.trim().match(/^@([^s]+)s+([sS]+)$/)
+    const match = draft.trim().match(/^@(\S+)\s+([\s\S]+)$/)
     if (!match) { setError('Start with a contact: @system, @A7, @ALS, @AS, or @all, then write your message.'); return }
     const targetName = match[1].replace(/,$/, '')
     const body = match[2].trim()

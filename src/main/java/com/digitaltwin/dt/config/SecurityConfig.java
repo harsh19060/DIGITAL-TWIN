@@ -34,8 +34,8 @@ public class SecurityConfig {
 
     @Bean
     InMemoryUserDetailsManager localUsers() {
-        UserDetails admin = User.withUsername("dev")
-                .password("{noop}" + env("APP_ADMIN_PASSWORD", env("APP_DEV_PASSWORD", "dev-only-change-me")))
+        UserDetails admin = User.withUsername(env("APP_ADMIN_USERNAME", "1234"))
+                .password("{noop}" + env("APP_ADMIN_PASSWORD", env("APP_DEV_PASSWORD", "1234")))
                 .roles("ADMIN")
                 .build();
         UserDetails student = User.withUsername("student")
