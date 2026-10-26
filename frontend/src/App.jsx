@@ -27,9 +27,11 @@ async function api(path, credentials, options = {}) {
     let message = detail || `Request failed (${response.status})`
     try {
       const parsed = JSON.parse(detail)
-      message = parsed.detail || parsed.message || message
+      message = parsed.detail || parsed.message || parsed.error || message
     } catch { /* backend may return plain text */ }
-    throw new Error(message)
+    const problem = new Error(message)
+    problem.status = response.status
+    throw problem
   }
   if (response.status === 204) return null
   return response.json()
@@ -57,6 +59,7 @@ function App() {
     try { return JSON.parse(sessionStorage.getItem('dt-credentials') || 'null') } catch { return null }
   })
   const [page, setPage] = useState('overview')
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('campus-twin-theme') === 'dark')
   const [rooms, setRooms] = useState([])
   const [teachers, setTeachers] = useState([])
   const [todaySchedule, setTodaySchedule] = useState(null)
@@ -87,6 +90,12 @@ function App() {
     return () => window.clearTimeout(timer)
   }, [refresh])
 
+  function toggleTheme() {
+    const next = !darkMode
+    localStorage.setItem('campus-twin-theme', next ? 'dark' : 'light')
+    setDarkMode(next)
+  }
+
   function signOut() {
     sessionStorage.removeItem('dt-credentials')
     setCredentials(null)
@@ -101,7 +110,7 @@ function App() {
   }} />
 
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${darkMode ? 'dark-mode' : ''}`}>
       <aside className="sidebar">
         <a className="brand" href="#overview" onClick={() => setPage('overview')}>
           <span className="brand-mark">d<span>t</span></span>
@@ -131,6 +140,7 @@ function App() {
           <div className="breadcrumb"><span>Digital Twin</span><i>/</i><strong>{NAV.find((item) => item.id === page)?.label}</strong></div>
           <div className="topbar-actions">
             <span className="connection"><i />{loadError ? "API needs attention" : lastUpdated ? "API connected" : "Connecting"}</span>
+            <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={darkMode ? 'Switch to light mode' : 'Switch to dark mode'} aria-pressed={darkMode}>{darkMode ? '☀' : '☾'}</button>
             <button className="icon-button refresh-button" onClick={refresh} disabled={loading} aria-label="Refresh data">{loading ? '…' : '↻'}</button>
             <span className="top-avatar">{credentials.username.slice(0, 1).toUpperCase()}</span>
           </div>
@@ -315,6 +325,7 @@ function MessagesPage({ credentials }) {
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+  const [backendOutdated, setBackendOutdated] = useState(false)
   const [sent, setSent] = useState('')
 
   const feedPath = useMemo(() => {
@@ -344,7 +355,15 @@ function MessagesPage({ credentials }) {
     async function listen() {
       try {
         const response = await fetch(streamPath, { headers: { Authorization: authHeader(credentials) }, signal: controller.signal })
-        if (!response.ok || !response.body) return
+        if (!response.ok) {
+          if (response.status === 404 && audience !== 'DIRECT') {
+            setBackendOutdated(true)
+            setError('Restart Spring Boot from the current project folder to enable sending and live messages.')
+          }
+          return
+        }
+        if (!response.body) return
+        setBackendOutdated(false)
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
@@ -369,7 +388,7 @@ function MessagesPage({ credentials }) {
     }
     listen()
     return () => controller.abort()
-  }, [streamPath, credentials])
+  }, [streamPath, credentials, audience])
 
   async function sendMessage(event) {
     event.preventDefault()
@@ -390,7 +409,19 @@ function MessagesPage({ credentials }) {
       setSent('Message sent to the campus chat.')
       setBody('')
       await loadFeed()
-    } catch (problem) { setError(problem.message) }
+    } catch (problem) {
+      if (backendOutdated) {
+        setError('Restart Spring Boot from the current project folder to enable message sending.')
+      } else if (problem.status === 404 && senderType === 'STUDENT') {
+        setError(`Student code ${senderCode} is not registered yet. Ask the campus admin to add it, then try again.`)
+      } else if (problem.status === 404 && audience === 'SECTION') {
+        setError(`Section ${sectionCode} was not found. Check the section code and try again.`)
+      } else if (problem.status === 404 && audience === 'DIRECT') {
+        setError('We could not find one of those participants. Check both codes in the campus directory.')
+      } else {
+        setError(problem.message)
+      }
+    }
     finally { setSending(false) }
   }
 
@@ -409,7 +440,7 @@ function MessagesPage({ credentials }) {
             <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="GENERAL">General</option><option value="ANNOUNCEMENT">Announcement</option><option value="QUESTION">Question</option><option value="LOST_FOUND">Lost & found</option></select></label>
           </div>
           <div className="composer-input"><textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder={audience === 'GLOBAL' ? 'Share something with the whole building…' : 'Write a message…'} required/><button className="send-button" disabled={sending || !senderCode.trim()} aria-label="Send message">{sending ? '…' : '↑'}</button></div>
-          <div className="composer-hint">Messages reach {audience === 'GLOBAL' ? 'everyone in the building' : audience === 'SECTION' ? 'everyone in this section chat' : 'both people in this direct conversation'}.</div>
+          <div className="composer-hint">Messages reach {audience === 'GLOBAL' ? 'everyone in the building' : audience === 'SECTION' ? 'everyone in this section chat' : 'both people in this direct conversation'}. Use the code registered in the campus directory.</div>
         </form>
       </section>
       <aside className="message-aside"><div className="message-aside-icon">✳</div><span className="eyebrow">A MORE CONNECTED CAMPUS</span><h3>One note.<br/><em>Everyone who needs it.</em></h3><p>Use section chats for class updates, direct messages for one-to-one conversations, and the global feed for campus-wide notices.</p><div className="message-tip"><strong>Lost something?</strong><span>Choose “Lost & found” and send it to @ All.</span></div></aside>
