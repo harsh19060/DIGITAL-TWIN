@@ -26,3 +26,7 @@ Timetable times use 24-hour `HH:mm` values. Week pattern values are `EVERY_WEEK`
 
 `spring.jpa.hibernate.ddl-auto=update` is enabled for local development only. Use database migrations before deploying this service.
 
+
+
+Admin calendar setup: PUT /api/admin/academic-calendar with {"weekAStartDate":"YYYY-MM-DD"}. The date must be a Monday. Query a date with GET /api/admin/academic-calendar/week-pattern?date=YYYY-MM-DD.
+
