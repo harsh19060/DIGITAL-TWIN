@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import './App.css'
+import BranchedMenu from './components/BranchedMenu'
+import FuseButton from './components/FuseButton'
 
 const NAV = [
   { id: 'overview', label: 'Overview', icon: '◫' },
@@ -9,6 +11,28 @@ const NAV = [
   { id: 'messages', label: 'Messages', icon: '⌁' },
 ]
 
+const MENU_ITEMS = [
+  {
+    label: 'Campus',
+    children: [
+      { value: 'overview', label: 'Overview', icon: '◫' },
+      { value: 'rooms', label: 'Rooms', icon: '▦' },
+    ],
+  },
+  {
+    label: 'Academics',
+    children: [
+      { value: 'teachers', label: 'Teachers', icon: '♙' },
+      { value: 'timetable', label: 'Timetable', icon: '▤' },
+    ],
+  },
+  {
+    label: 'Community',
+    children: [
+      { value: 'messages', label: 'Messages', icon: '⌁' },
+    ],
+  },
+]
 function authHeader(credentials) {
   return `Basic ${btoa(`${credentials.username}:${credentials.password}`)}`
 }
@@ -117,14 +141,25 @@ function App() {
           <span className="brand-copy"><strong>campus twin</strong><small>BUILDING, IN SYNC</small></span>
         </a>
         <div className="sidebar-label">WORKSPACE</div>
-        <nav className="main-nav" aria-label="Main navigation">
-          {NAV.map((item) => (
-            <button key={item.id} className={`nav-item ${page === item.id ? 'active' : ''}`} onClick={() => setPage(item.id)}>
-              <span className="nav-icon">{item.icon}</span><span>{item.label}</span>
-              {item.id === 'messages' && <span className="nav-live-dot" />}
-            </button>
-          ))}
-        </nav>
+        <BranchedMenu
+          className="campus-branched-menu"
+          items={MENU_ITEMS}
+          activeValue={page}
+          defaultOpen={[0]}
+          onSelect={setPage}
+          color="#b7c3c6"
+          accentColor="#b9da88"
+          lineColor="rgba(255, 255, 255, .16)"
+          width={206}
+          rowHeight={34}
+          indent={36}
+          trunk={10}
+          radius={9}
+          lineWidth={1.4}
+          fontSize={12}
+          drawDuration={350}
+          foldDuration={250}
+        />
         <div className="sidebar-bottom">
           <div className="building-card"><span className="building-light" /><div><strong>DT Building</strong><small>Live campus data</small></div></div>
           <button className="user-card" onClick={signOut} title="Sign out">
@@ -170,7 +205,7 @@ function Login({ onLogin }) {
   const [busy, setBusy] = useState(false)
 
   async function submit(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
     setBusy(true)
     setError('')
     const credentials = { username, password }
@@ -391,7 +426,12 @@ function MessagesPage({ credentials }) {
   }, [streamPath, credentials, audience])
 
   async function sendMessage(event) {
-    event.preventDefault()
+    event?.preventDefault?.()
+    const missingAudienceCode = (audience === 'SECTION' && !sectionCode.trim()) || (audience === 'DIRECT' && !recipientCode.trim())
+    if (!senderCode.trim() || !body.trim() || missingAudienceCode) {
+      setError('Complete the message and audience fields before sending.')
+      return
+    }
     setSending(true)
     setError('')
     setSent('')
@@ -439,7 +479,29 @@ function MessagesPage({ credentials }) {
             {audience === 'DIRECT' && <><label>Recipient type<select value={recipientType} onChange={(event) => setRecipientType(event.target.value)}><option value="TEACHER">Teacher</option><option value="STUDENT">Student</option></select></label><label>Recipient code<input value={recipientCode} onChange={(event) => setRecipientCode(event.target.value)} placeholder="Staff or student code" required/></label></>}
             <label>Category<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="GENERAL">General</option><option value="ANNOUNCEMENT">Announcement</option><option value="QUESTION">Question</option><option value="LOST_FOUND">Lost & found</option></select></label>
           </div>
-          <div className="composer-input"><textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder={audience === 'GLOBAL' ? 'Share something with the whole building…' : 'Write a message…'} required/><button className="send-button" disabled={sending || !senderCode.trim()} aria-label="Send message">{sending ? '…' : '↑'}</button></div>
+          <div className="composer-input">
+            <textarea value={body} onChange={(event) => setBody(event.target.value)} maxLength={2000} placeholder={audience === 'GLOBAL' ? 'Share something with the whole building…' : 'Write a message…'} required />
+            <FuseButton
+              className="message-send-fuse"
+              label={sending ? 'Sending' : 'Send'}
+              undoLabel="Undo"
+              doneLabel="Sent"
+              icon={<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5m-7 7 7-7 7 7" /></svg>}
+              color="#ffffff"
+              background="#506f58"
+              fuseColor="#e8c77a"
+              size="sm"
+              radius={9}
+              undoWindow={1400}
+              fuse="bottom"
+              fuseThickness={2}
+              commitOn="fuseEnd"
+              pauseOnHover={false}
+              settle="reset"
+              disabled={sending || !senderCode.trim() || !body.trim() || (audience === 'SECTION' && !sectionCode.trim()) || (audience === 'DIRECT' && !recipientCode.trim())}
+              onCommit={() => sendMessage()}
+            />
+          </div>
           <div className="composer-hint">Messages reach {audience === 'GLOBAL' ? 'everyone in the building' : audience === 'SECTION' ? 'everyone in this section chat' : 'both people in this direct conversation'}. Use the code registered in the campus directory.</div>
         </form>
       </section>

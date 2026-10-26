@@ -395,3 +395,49 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .dark-mode .mobile-nav { background: rgba(24,42,50,.97); border-color: #31474e; }
 .dark-mode .mobile-nav button.active { background: #2b4037; color: #c1d9af; }
 .dark-mode .form-error, .dark-mode .error-banner { color: #f0bca6; background: #3c302e; border-color: #664a40; }
+
+/* Branched campus navigation and fuse send control */
+.campus-branched-menu {
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+}
+.campus-branched-menu .branched-menu__head {
+  padding: 10px 0;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+.campus-branched-menu .branched-menu__item {
+  border-radius: 8px;
+}
+.campus-branched-menu .branched-menu__icon {
+  width: 16px;
+  height: 16px;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+.campus-branched-menu button:focus-visible {
+  outline: 2px solid #b9da88;
+  outline-offset: 2px;
+}
+.message-send-fuse {
+  flex: 0 0 auto;
+  min-width: 76px;
+  box-shadow: none;
+}
+.message-send-fuse .fuse-button__face {
+  font-size: 11px;
+  font-weight: 600;
+}
+@media (max-width: 790px) and (min-width: 561px) {
+  .sidebar { width: 210px; padding: 20px 13px; align-items: stretch; }
+  .brand { padding-inline: 7px; }
+  .brand-copy { display: flex; }
+  .sidebar-label { display: block; margin: 34px 10px 12px; }
+  .sidebar-bottom .building-card { display: flex; }
+  .user-meta { display: flex; }
+  .sign-out { display: inline; }
+  .main-area { margin-left: 210px; }
+}
