@@ -126,8 +126,8 @@ public class CampusMessageService {
                     MessageAudience.SECTION, "", type, code, page)) {
                 String sentTo = message.getRecipientCode();
                 if (sentTo != null && !sentTo.isBlank()) {
-                    contacts.putIfAbsent("SECTION:" + sentTo.toLowerCase(Locale.ROOT),
-                            sectionContact(sentTo, type, code, page));
+                    String key = "SECTION:" + sentTo.toLowerCase(Locale.ROOT);
+                    if (!contacts.containsKey(key)) contacts.put(key, sectionContact(sentTo, type, code, page));
                 }
             }
         }

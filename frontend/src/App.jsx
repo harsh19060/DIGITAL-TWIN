@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import BranchedMenu from './components/BranchedMenu'
 import FuseButton from './components/FuseButton'
@@ -453,6 +453,9 @@ function TimetablePage({ credentials, adminOnly = false }) {
 function MessagesPage({ credentials, identity }) {
   const [contacts, setContacts] = useState([])
   const [selectedKey, setSelectedKey] = useState('')
+  const selectedKeyRef = useRef('')
+  const selectedContactRef = useRef(null)
+  const conversationRequestRef = useRef(0)
   const [activeTarget, setActiveTarget] = useState(null)
   const [unreadBoundary, setUnreadBoundary] = useState(null)
   const [feed, setFeed] = useState([])
@@ -468,12 +471,13 @@ function MessagesPage({ credentials, identity }) {
     try {
       const items = await api('/api/messages/contacts', credentials)
       setContacts((current) => JSON.stringify(current) === JSON.stringify(items) ? current : items)
-      if (!selectedKey && items.length) {
+      if (!selectedKeyRef.current && items.length) {
         const initial = items.find((item) => item.conversationType === 'DIRECT' && item.participantType === 'SYSTEM') || items[0]
+        selectedKeyRef.current = contactKey(initial)
         setSelectedKey(contactKey(initial))
         setActiveTarget(initial)
         setUnreadBoundary(initial.unreadCount > 0
-          ? { key: contactKey(initial), after: initial.lastReadAt, show: true }
+          ? { key: contactKey(initial), after: initial.lastReadAt, through: initial.lastMessageAt, show: true }
           : null)
       }
       return items
@@ -481,23 +485,23 @@ function MessagesPage({ credentials, identity }) {
       setError(problem.message)
       return []
     }
-  }, [credentials, selectedKey])
+  }, [credentials])
 
   const markConversationRead = useCallback(async (contact) => {
-    await api('/api/messages/read', credentials, { method: 'POST', body: JSON.stringify({
+    const readAt = await api('/api/messages/read', credentials, { method: 'POST', body: JSON.stringify({
       conversationType: contact.conversationType,
       participantType: contact.participantType,
       code: contact.code,
     }) })
-    const readAt = new Date().toISOString()
     const key = contactKey(contact)
     setContacts((current) => current.map((item) => contactKey(item) === key
       ? { ...item, unreadCount: 0, lastReadAt: readAt }
       : item))
   }, [credentials])
 
-  const loadConversation = useCallback(async (contact = selected) => {
-    if (!contact) { setFeed([]); return }
+  const loadConversation = useCallback(async (contact) => {
+    const requestId = ++conversationRequestRef.current
+    if (!contact) { setFeed([]); setBusy(false); return }
     let path
     if (contact.conversationType === 'GLOBAL') path = '/api/messages/global'
     else if (contact.conversationType === 'SECTION') path = '/api/messages/section/' + encodeURIComponent(contact.code)
@@ -506,11 +510,17 @@ function MessagesPage({ credentials, identity }) {
     setBusy(true)
     setError('')
     try {
-      setFeed(await api(path, credentials))
-      if (contact.unreadCount > 0) markConversationRead(contact).catch((problem) => setError(problem.message))
-    } catch (problem) { setFeed([]); setError(problem.message) }
-    finally { setBusy(false) }
-  }, [selected, identity, credentials, markConversationRead])
+      const messages = await api(path, credentials)
+      if (requestId === conversationRequestRef.current) {
+        setFeed(messages)
+        if (contact.unreadCount > 0) markConversationRead(contact).catch((problem) => setError(problem.message))
+      }
+    } catch (problem) {
+      if (requestId === conversationRequestRef.current) { setFeed([]); setError(problem.message) }
+    } finally {
+      if (requestId === conversationRequestRef.current) setBusy(false)
+    }
+  }, [identity, credentials, markConversationRead])
 
   useEffect(() => {
     const timer = window.setTimeout(refreshContacts, 0)
@@ -518,21 +528,29 @@ function MessagesPage({ credentials, identity }) {
   }, [refreshContacts])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => loadConversation(selected), 0)
-    return () => window.clearTimeout(timer)
-  }, [loadConversation, selected])
+    if (selected) selectedContactRef.current = selected
+  }, [selected])
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => loadConversation(selectedContactRef.current), 0)
+    return () => {
+      window.clearTimeout(timer)
+      conversationRequestRef.current += 1
+    }
+  }, [loadConversation, selectedKey])
   useEffect(() => {
     const timer = window.setInterval(refreshContacts, 10000)
     return () => window.clearInterval(timer)
   }, [refreshContacts])
 
   const streamPath = useMemo(() => {
-    if (!selected) return null
-    if (selected.conversationType === 'GLOBAL') return '/api/messages/stream/global'
-    if (selected.conversationType === 'SECTION') return '/api/messages/stream/section/' + encodeURIComponent(selected.code)
+    if (!selectedKey) return null
+    const [conversationType, participantType, code] = selectedKey.split(':')
+    if (conversationType === 'GLOBAL') return '/api/messages/stream/global'
+    if (conversationType === 'SECTION') return '/api/messages/stream/section/' + encodeURIComponent(code)
     return '/api/messages/stream/direct/' + identity.participantType + '/' + encodeURIComponent(identity.participantCode) +
-      '/' + selected.participantType + '/' + encodeURIComponent(selected.code)
-  }, [selected, identity])
+      '/' + participantType + '/' + encodeURIComponent(code)
+  }, [selectedKey, identity])
 
   useEffect(() => {
     if (!streamPath) return undefined
@@ -558,7 +576,8 @@ function MessagesPage({ credentials, identity }) {
               setFeed((current) => current.some((item) => item.id === message.id) ? current : [...current, message].slice(-100))
               const own = message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase()
                 && message.senderType === identity.participantType
-              if (!own) markConversationRead(selected).catch((problem) => setError(problem.message))
+              const currentConversation = selectedContactRef.current
+              if (!own && currentConversation) markConversationRead(currentConversation).catch((problem) => setError(problem.message))
               refreshContacts()
             } catch { /* The initial connection event has no message payload. */ }
           }
@@ -569,7 +588,7 @@ function MessagesPage({ credentials, identity }) {
     }
     listen()
     return () => controller.abort()
-  }, [streamPath, credentials, identity, selected, markConversationRead, refreshContacts])
+  }, [streamPath, credentials, identity, markConversationRead, refreshContacts])
 
   async function resolveContact(target) {
     const known = contacts.find((contact) => contact.code.toLowerCase() === target.toLowerCase())
@@ -590,9 +609,11 @@ function MessagesPage({ credentials, identity }) {
 
   function openContact(contact) {
     const key = contactKey(contact)
-    setUnreadBoundary(contact.unreadCount > 0 ? { key, after: contact.lastReadAt, show: true } : null)
+    setUnreadBoundary(contact.unreadCount > 0 ? { key, after: contact.lastReadAt, through: contact.lastMessageAt, show: true } : null)
     setActiveTarget(contact)
+    selectedKeyRef.current = key
     setSelectedKey(key)
+    selectedContactRef.current = contact
   }
 
   async function submitMessage(event) {
@@ -647,13 +668,16 @@ function MessagesPage({ credentials, identity }) {
       }
       setDraft('')
       setActiveTarget(target)
+      selectedKeyRef.current = contactKey(target)
       setSelectedKey(contactKey(target))
+      selectedContactRef.current = target
       setUnreadBoundary(target.unreadCount > 0
-        ? { key: contactKey(target), after: target.lastReadAt, show: true }
+        ? { key: contactKey(target), after: target.lastReadAt, through: target.lastMessageAt, show: true }
         : null)
       const updatedContacts = await refreshContacts()
       const savedTarget = updatedContacts.find((item) => contactKey(item) === contactKey(target)) || target
-      if (savedTarget.unreadCount > 0) markConversationRead(savedTarget).catch((problem) => setError(problem.message))
+      selectedContactRef.current = savedTarget
+      await loadConversation(savedTarget)
     } catch (problem) { setError(problem.message) }
     finally { setSending(false) }
   }
@@ -680,6 +704,7 @@ function MessagesPage({ credentials, identity }) {
           const own = message.senderCode?.toLowerCase() === identity.participantCode.toLowerCase() && message.senderType === identity.participantType
           const unread = unreadBoundary?.key === selectedConversationKey && unreadBoundary.show && !own
             && (!unreadBoundary.after || new Date(message.createdAt) > new Date(unreadBoundary.after))
+            && (!unreadBoundary.through || new Date(message.createdAt) <= new Date(unreadBoundary.through))
           const showDivider = unread && !unreadDividerShown
           if (showDivider) unreadDividerShown = true
           return <Fragment key={message.id}>{showDivider && <div className="unread-divider">Unread messages</div>}<MessageBubble message={message} own={own} unread={unread}/></Fragment>

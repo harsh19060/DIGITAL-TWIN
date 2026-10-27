@@ -55,15 +55,14 @@ public class CampusMessageController {
     }
 
     @PostMapping("/read")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void markRead(@Valid @RequestBody ReadRequest request, Authentication authentication) {
+    public java.time.Instant markRead(@Valid @RequestBody ReadRequest request, Authentication authentication) {
         var identity = identityService.requireParticipant(authentication);
         String type = request.conversationType().trim().toUpperCase(java.util.Locale.ROOT);
         if ("SECTION".equals(type)) assertSectionAccess(request.code(), authentication);
         if ("DIRECT".equals(type) && (request.participantType() == null || request.code() == null || request.code().isBlank())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Direct read receipts require a participant type and code");
         }
-        messageService.markConversationRead(identity.participantType(), identity.participantCode(), type,
+        return messageService.markConversationRead(identity.participantType(), identity.participantCode(), type,
                 request.participantType(), request.code());
     }
     @GetMapping("/direct/{firstType}/{firstCode}/{secondType}/{secondCode}")
